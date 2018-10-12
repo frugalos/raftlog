@@ -1,0 +1,15 @@
+[package]
+name = "raftlog_simu"
+version = "0.1.0"
+authors = ["The FrugalOS Developers"]
+publish = false
+
+[dependencies]
+clap = "2"
+futures = "0.1"
+serde = "1"
+serde_derive = "1"
+serdeconv = "0.3"
+raftlog = { path = "../" }
+rand = "0.5"
+trackable = "0.2"

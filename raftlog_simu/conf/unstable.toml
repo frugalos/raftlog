@@ -1,0 +1,19 @@
+[simulator]
+propose_command = {prob = 0.002}
+
+[simulator.io.channel]
+drop = {prob = 0.1}
+delay = {min = 50, max = 500}
+
+[simulator.io.storage]
+save_ballot_time = {min = 1, max = 100}
+load_ballot_time = {min = 1, max = 100}
+
+save_log_entry_time = {min = 5, max = 100}
+load_log_entry_time = {min = 5, max = 50}
+
+save_log_snapshot_time = {min = 50, max = 5000}
+load_log_snapshot_time = {min = 50, max = 5000}
+
+[simulator.io.timer]
+heartbeat_interval = 400

@@ -1,0 +1,18 @@
+[package]
+name = "raftlog"
+version = "0.4.0"
+authors = ["The FrugalOS Developers"]
+description = "An implementation of distributed replicated log based on the Raft algorithm"
+homepage = "https://github.com/frugalos/raftlog"
+repository = "https://github.com/frugalos/raftlog"
+readme = "README.md"
+keywords = ["raft", "distributed"]
+categories = ["algorithms", "asynchronous"]
+license = "MIT"
+
+[badges]
+travis-ci = {repository = "frugalos/raftlog"}
+
+[dependencies]
+futures = "0.1"
+trackable = "0.2"
