@@ -1,8 +1,8 @@
 Contribution Guide
 ==================
 
-Coding Rule
------------
+Coding Standards
+-----------------
 
 You must apply the latest `rustfmt` (formtter) and `clippy` (linter) as follows:
 
@@ -21,7 +21,7 @@ For other coding styles that can not be covered with the above tools, follow [Ru
 Pull Request
 ------------
 
-Before creating a pull request, please make sure that the unit tests passes in your environment:
+Before creating a pull request, please make sure that the unit tests pass in your environment:
 
 ```console
 $ cargo test
