@@ -117,11 +117,10 @@ impl<IO: Io> FollowersManager<IO> {
             return Ok(());
         }
 
-        let follower = track!(
-            self.followers
-                .get_mut(&reply.header.sender)
-                .ok_or_else(|| ErrorKind::InconsistentState.error())
-        )?;
+        let follower = track!(self
+            .followers
+            .get_mut(&reply.header.sender)
+            .ok_or_else(|| ErrorKind::InconsistentState.error()))?;
         if reply.header.seq_no <= follower.obsolete_seq_no {
             // 平行度が高くなりすぎるのを防止するために、
             // propose(broadcast)が重なった場合には、

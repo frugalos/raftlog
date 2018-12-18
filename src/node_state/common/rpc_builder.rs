@@ -18,11 +18,13 @@ impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
         let request = message::RequestVoteCall {
             header: header.clone(),
             log_tail,
-        }.into();
+        }
+        .into();
         let self_reply = message::RequestVoteReply {
             header,
             voted: true,
-        }.into();
+        }
+        .into();
         self.broadcast(request, self_reply);
     }
     pub fn broadcast_append_entries(mut self, suffix: LogSuffix) {
@@ -31,12 +33,14 @@ impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
             header: header.clone(),
             committed_log_tail: self.common.history.committed_tail().index,
             suffix,
-        }.into();
+        }
+        .into();
         let self_reply = AppendEntriesReply {
             header,
             log_tail: self.common.history.tail(),
             busy: false,
-        }.into();
+        }
+        .into();
         self.broadcast(request, self_reply);
     }
     pub fn send_append_entries(mut self, peer: &NodeId, suffix: LogSuffix) {
@@ -44,7 +48,8 @@ impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
             header: self.make_header(peer),
             committed_log_tail: self.common.history.committed_tail().index,
             suffix,
-        }.into();
+        }
+        .into();
         self.common.io.send_message(message);
     }
     pub fn send_install_snapshot(mut self, peer: &NodeId, prefix: LogPrefix) {
@@ -98,7 +103,8 @@ impl<'a, IO: 'a + Io> RpcCallee<'a, IO> {
             header: self.make_header(),
             log_tail,
             busy: false,
-        }.into();
+        }
+        .into();
         self.common.io.send_message(message);
     }
     pub fn reply_busy(self) {
@@ -106,7 +112,8 @@ impl<'a, IO: 'a + Io> RpcCallee<'a, IO> {
             header: self.make_header(),
             log_tail: self.common.history.tail(),
             busy: true,
-        }.into();
+        }
+        .into();
         self.common.io.send_message(message);
     }
 

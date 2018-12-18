@@ -112,21 +112,18 @@ impl<IO: Io> FollowerIdle<IO> {
         suffix: &LogSuffix,
     ) -> Result<(bool, LogPosition)> {
         for LogPosition { prev_term, index } in suffix.positions() {
-            let record = track!(
-                common
-                    .log()
-                    .get_record(index)
-                    .ok_or_else(|| ErrorKind::InconsistentState.error())
-            )?;
+            let record = track!(common
+                .log()
+                .get_record(index)
+                .ok_or_else(|| ErrorKind::InconsistentState.error()))?;
             let local_prev_term = record.head.prev_term;
             if prev_term != local_prev_term {
                 // 両者のログが分岐
-                let mut lcp = track!(
-                    common
-                        .log()
-                        .get_record(index - 1)
-                        .ok_or_else(|| ErrorKind::InconsistentState.error())
-                )?.head;
+                let mut lcp = track!(common
+                    .log()
+                    .get_record(index - 1)
+                    .ok_or_else(|| ErrorKind::InconsistentState.error()))?
+                .head;
                 lcp.index = index - 1;
                 return Ok((false, lcp));
             }

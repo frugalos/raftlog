@@ -126,10 +126,10 @@ impl LogHistory {
             new_tail_index,
             self.appended_tail.index
         );
-        let prev_term = track!(
-            self.get_record(new_tail_index,)
-                .ok_or_else(|| ErrorKind::Other.error(),)
-        )?.head
+        let prev_term = track!(self
+            .get_record(new_tail_index,)
+            .ok_or_else(|| ErrorKind::Other.error(),))?
+        .head
         .prev_term;
         self.committed_tail = LogPosition {
             prev_term,
@@ -148,10 +148,12 @@ impl LogHistory {
             ErrorKind::Other
         );
 
-        let prev_term = track!(self.get_record(new_tail_index).ok_or_else(|| {
-            ErrorKind::Other.cause(format!("Too old index: {:?}", new_tail_index))
-        }))?.head
-        .prev_term;
+        let prev_term =
+            track!(self.get_record(new_tail_index).ok_or_else(
+                || ErrorKind::Other.cause(format!("Too old index: {:?}", new_tail_index))
+            ))?
+            .head
+            .prev_term;
         self.consumed_tail = LogPosition {
             prev_term,
             index: new_tail_index,
