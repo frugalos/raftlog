@@ -20,7 +20,7 @@ impl<IO: Io> FollowerIdle<IO> {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
+    #[allow(clippy::if_same_then_else)]
     pub fn handle_message(
         &mut self,
         common: &mut Common<IO>,
