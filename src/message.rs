@@ -99,6 +99,7 @@ pub struct RequestVoteCall {
     pub header: MessageHeader,
 
     /// 送信者のログの終端位置.
+    /// ? LogPositionで(lastLogIndex, lastLogTerm)は表現できるのか？
     pub log_tail: LogPosition,
 }
 
@@ -119,9 +120,11 @@ pub struct AppendEntriesCall {
     pub header: MessageHeader,
 
     /// コミット済みログの終端インデックス.
+    /// 論文の leaderCommit 引数に対応する
     pub committed_log_tail: LogIndex,
 
     /// 追記対象となるログの末尾部分.
+    /// 論文の prevLogIndex, prevLogTerm, entries[] の3引数に対応する
     pub suffix: LogSuffix,
 }
 
@@ -137,6 +140,11 @@ pub struct AppendEntriesReply {
     /// 「リーダに次に送って貰いたい末尾部分の開始位置」的な意味合いを有する.
     ///
     /// それを考慮すると`next_head`といった名前の方が適切かもしれない.
+    ///
+    /// 論文ではbooleanの値 success を要求している。
+    /// このlog_tail は Append に失敗した場合の
+    /// decrement処理をスキップするためのものだと思われるが
+    /// Appendに成功したか失敗したかの本来行いたかった処理はどう判断するのか？
     pub log_tail: LogPosition,
 
     /// 応答者が忙しいかどうか.

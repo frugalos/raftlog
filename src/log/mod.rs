@@ -238,6 +238,10 @@ pub struct LogPosition {
 
     /// この位置のインデックス.
     pub index: LogIndex,
+
+    /// index: LogIndex
+    /// term: Term
+    /// とするべきではないか？１つ前のインデックスのエントリを取れた方が便利？？
 }
 impl LogPosition {
     /// `self`がログ上で、`other`と等しい、あるいは、より後方に位置している場合に`true`が返る.

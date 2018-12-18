@@ -30,10 +30,10 @@ pub struct ReplicatedLog<IO: Io> {
 impl<IO: Io> ReplicatedLog<IO> {
     /// `members`で指定されたクラスタに属する`ReplicatedLog`のローカルインスタンス(ノード)を生成する.
     ///
-    /// ローカルノードのIDは`node_id`で指定するが、これが`members`の含まれている必要は必ずしもない.
+    /// ローカルノードのIDは`node_id`で指定するが、これが`members`に含まれている必要はない.
     /// 例えば、クラスタの構成変更に伴い、新規ノードを追加したい場合には、
-    /// `members`に現行構成を指定することが望ましいが、このケースでは、
-    /// `node_id`は`members`の中には含まれないことになる.
+    /// `members`に現行構成を指定することが望ましいが（TODO: 理由を明記すること）、
+    /// その場合は`node_id`は`members`の中には含まれないことになる.
     ///
     /// なお、ノードの再起動時を除いて、`node_id`には対象クラスタの歴史の中でユニークなIDを
     /// 割り当てるのが望ましい.
@@ -49,6 +49,9 @@ impl<IO: Io> ReplicatedLog<IO> {
         ReplicatedLog { node }
     }
 
+    /// TODO: 論文における何に対応するかを書かなくてはならない。
+    /// 5.3 log replicationにおける、他ノードに対するreplicateか？？
+    ///
     /// 新しいコマンドを提案する.
     ///
     /// 提案が承認(コミット)された場合には、返り値の`LogPosition`を含む
@@ -135,26 +138,34 @@ impl<IO: Io> ReplicatedLog<IO> {
     /// `new_head`が新しいローカルログの先頭位置となり、
     /// `snapshot`はその地点までのコマンド群が適用済みの状態機械のスナップショット、となる.
     ///
+    /// TODO: 新しいローカルログの先頭位置を覚える必要は？
+    ///
     /// # Errors
     ///
     /// 既にローカルログに対するスナップショットのインストールが進行中の場合には、
     /// `ErrorKind::Busy`を理由としてエラーが返される.
     ///
+    /// TODO: 上書きできないのか？
+    ///
     /// また現在のログの先頭よりも前の地点のスナップショットをインストールしようとした場合には、
     /// `ErrorKind::InvalidInput`を理由としたエラーが返される.
     pub fn install_snapshot(&mut self, new_head: LogIndex, snapshot: Vec<u8>) -> Result<()> {
+
+        // TODO: この前提条件はなに？
         track_assert!(
             !self.node.is_loading(),
             ErrorKind::Busy,
             "Loading node state"
         );
 
+        // prev_term: new_headの「直前」に位置するエントリのtermを返す
+        // config: なに？？
         let (prev_term, config) = {
             let record = track!(
                 self.node
                     .common
                     .log()
-                    .get_record(new_head)
+                    .get_record(new_head) // これがErrorを返すのは、new_head < logのcurrent_headのとき
                     .ok_or_else(|| ErrorKind::InvalidInput.error()),
                 "Too old log position: new_head={:?}, current_head={:?}, node={:?}",
                 new_head,
@@ -163,6 +174,8 @@ impl<IO: Io> ReplicatedLog<IO> {
             )?;
             (record.head.prev_term, record.config.clone())
         };
+
+        // TODO: 直感的な説明が欲しい
         let prefix = LogPrefix {
             tail: LogPosition {
                 prev_term,
@@ -281,6 +294,7 @@ pub enum Event {
     /// インデックスは常に一ずつ増加する.
     Committed { index: LogIndex, entry: LogEntry },
 
+    /// TODO: 分かる人にしか分からない。ロードとはなに？誰がどこに？
     /// スナップショットがロードされた.
     ///
     /// `ReplicatedLog`の利用者は、自身が管理する状態機械を、
@@ -290,6 +304,7 @@ pub enum Event {
         snapshot: Vec<u8>,
     },
 
+    /// TODO: 分かる人にしか分からない。インストールとはなに？誰がどこに？
     /// スナップショットのインストールが行われた.
     ///
     /// もし`new_head`の位置が、最新のコミット済み地点よりも

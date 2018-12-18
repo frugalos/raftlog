@@ -16,6 +16,7 @@ impl<IO: Io> Loader<IO> {
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
         // ロードにはタイムアウトは存在しないので、無条件で延長し続ける
+        // TODO: この二行の意味はきちんと説明して分けるべき
         common.set_timeout(Role::Follower);
         Ok(None)
     }
