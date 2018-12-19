@@ -113,10 +113,9 @@ where
             // - 3. ログは残っていないので、1のスナップショットをロードする
             //   => このメソッドに入ってくる
             // - 4. インストール完了が通知される
-            track!(
-                self.history
-                    .record_snapshot_installed(prefix.tail, prefix.config.clone(),)
-            )?;
+            track!(self
+                .history
+                .record_snapshot_installed(prefix.tail, prefix.config.clone(),))?;
         }
         track!(self.history.record_snapshot_loaded(&prefix))?;
         let event = Event::SnapshotLoaded {
