@@ -22,7 +22,7 @@ pub struct Common<IO: Io> {
     timeout: IO::Timeout,
     events: VecDeque<Event>,
     io: IO,
-    unread_message: Option<Message>,
+    unread_message: Option<Message>, // eventsは可変長コンテナであるのに、これがOptionで良いのはなぜ？
     seq_no: SequenceNumber,
     load_committed: Option<IO::LoadLog>,
     install_snapshot: Option<InstallSnapshot<IO>>,
@@ -161,6 +161,8 @@ where
     }
 
     /// `Follower`状態に遷移する.
+    /// ノード `followee` へ投票する。
+    /// このメソッドでは厳密には投票の準備だけ行い、実際の投票は○○○で行われる。
     pub fn transit_to_follower(&mut self, followee: NodeId) -> RoleState<IO> {
         let new_ballot = Ballot {
             term: self.local_node.ballot.term,
@@ -192,22 +194,22 @@ where
         &mut self.io
     }
 
-    /// 指定範囲のローカルログをロードする.
+    /// 指定範囲のローカルログをロードするfutureを返す.
     pub fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> IO::LoadLog {
         self.io.load_log(start, end)
     }
 
-    /// ローカルログの末尾部分に`suffix`を追記する.
+    /// ローカルログの末尾部分に`suffix`を追記するfutureを返す.
     pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
         self.io.save_log_suffix(suffix)
     }
 
-    /// 現在の投票状況を保存する.
+    /// 現在の投票状況を保存するfutureを返す.
     pub fn save_ballot(&mut self) -> IO::SaveBallot {
         self.io.save_ballot(self.local_node.ballot.clone())
     }
 
-    /// 以前の投票状況を復元する.
+    /// 以前の投票状況を復元するfutureを返す.
     pub fn load_ballot(&mut self) -> IO::LoadBallot {
         self.io.load_ballot()
     }
@@ -223,6 +225,7 @@ where
     }
 
     /// ユーザに通知するイベントがある場合には、それを返す.
+    /// このメソッドはcommon構造体内部のキューを消費する破壊的メソッドである。
     pub fn next_event(&mut self) -> Option<Event> {
         self.events.pop_front()
     }
@@ -249,7 +252,9 @@ where
         Ok(())
     }
 
-    /// 受信メッセージに対する共通的な処理を実行する.
+    /// 受信メッセージに対する共通処理を実行する.
+    /// 共通処理というのは、ノード状態に対して共通なのか、それともメッセージに対して共通なのか？
+    /// 度が過ぎるならば、適切に分離するべき。
     pub fn handle_message(&mut self, message: Message) -> HandleMessageResult<IO> {
         if self.local_node.role == Role::Leader
             && !self.config().is_known_node(&message.header().sender)

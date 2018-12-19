@@ -120,6 +120,7 @@ impl<IO: Io> Stream for NodeState<IO> {
 
             // タイムアウト処理
             if let Async::Ready(()) = track!(self.common.poll_timeout())? {
+                // 既にタイムアウトしているならば以下の処理
                 did_something = true;
                 if let Some(next) = track!(self.handle_timeout())? {
                     self.role = next;

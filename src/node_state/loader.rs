@@ -28,6 +28,13 @@ impl<IO: Io> Loader<IO> {
                     if let Some(ballot) = ballot {
                         common.set_ballot(ballot);
                     }
+                    /*
+                    issue12関連でNone = ballotを想定した挙動になっているか確認すること
+                    とはいえまっさらなfrugalosクラスタだと、Loaderではじめるのか Followerではじめるのか、それとも？
+                    前回の状況を復元ということは、初回は違うパスか？
+                     */
+
+                    // LogIndex::new(0)には何がある？
                     let future = common.load_log(LogIndex::new(0), None);
                     Phase::B(future) // => ログ復元へ
                 }
@@ -52,6 +59,7 @@ impl<IO: Io> Loader<IO> {
                             // NOTE:
                             // ここで必要なのは「ローカルログの長さ」だけなので、
                             // 本来は後半部分を全て読み込む必要はない.
+                            // ?? 長さだけというのはどういう意味か？
                             //
                             // もしこれに起因した現実的な性能問題が発生するようであれば、
                             // 「ローカルログの長さ取得」を行うための専用メソッドを、
