@@ -1,6 +1,7 @@
 use futures::{Async, Future};
 use std::collections::BTreeMap;
 use std::mem;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use trackable::error::ErrorKindExt;
 
 use super::super::Common;
@@ -134,6 +135,21 @@ impl<IO: Io> FollowersManager<IO> {
             return Ok(());
         }
 
+        // 同期処理による過負荷を防止するために、ペース制限を課す。
+        //
+        // 本当はraftlog内で実時間を考慮した処理は入れたくないので、
+        // 過負荷を防止する他の良い方法が思いついたら、それに置き換える。
+        let min_sync_interval = Duration::from_secs(1); // TODO: parameterize
+        if follower
+            .last_sync_time
+            .elapsed()
+            .ok()
+            .map_or(true, |elapsed| elapsed < min_sync_interval)
+        {
+            return Ok(());
+        }
+        follower.last_sync_time = SystemTime::now();
+
         let end = if follower.synced {
             // フォロワーのログとリーダのログの差分を送信
             common.log().tail().index
@@ -209,6 +225,7 @@ struct Follower {
     pub log_tail: LogIndex,
     pub last_seq_no: SequenceNumber,
     pub synced: bool,
+    pub last_sync_time: SystemTime,
 }
 impl Follower {
     pub fn new() -> Self {
@@ -218,6 +235,7 @@ impl Follower {
             log_tail: LogIndex::new(0),
             last_seq_no: SequenceNumber::new(0),
             synced: false,
+            last_sync_time: UNIX_EPOCH,
         }
     }
 }
