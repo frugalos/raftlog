@@ -153,7 +153,9 @@ where
     /// is running or not.
     pub fn is_focusing_on_installing_snapshot(&self) -> bool {
         if let Some(ref snapshot) = self.install_snapshot {
-            return self.log().tail().index <= snapshot.summary.tail.index;
+            // This condition is a bit complicated.
+            // See https://github.com/frugalos/raftlog/pull/16#discussion_r250061583.
+            return self.log().tail().index < snapshot.summary.tail.index;
         }
         false
     }
