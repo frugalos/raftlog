@@ -1,7 +1,7 @@
 use futures::Future;
 
 use super::super::{Common, NextState, RoleState};
-use super::{Follower, FollowerIdle};
+use super::{Follower, FollowerIdle, FollowerSnapshot};
 use message::{Message, MessageHeader};
 use {Io, Result};
 
@@ -45,8 +45,16 @@ impl<IO: Io> FollowerInit<IO> {
             if let Some(header) = self.pending_vote.take() {
                 common.rpc_callee(&header).reply_request_vote(true);
             }
-            let next = FollowerIdle::new();
-            Ok(Some(RoleState::Follower(Follower::Idle(next))))
+            // We must complete the active snapshot before appending new log entries
+            // to keep the consistency of the state of a node if the node is busy
+            // installing snapshot.
+            // See https://github.com/frugalos/raftlog/issues/15.
+            let next = if common.is_focusing_on_installing_snapshot() {
+                RoleState::Follower(Follower::Snapshot(FollowerSnapshot::new()))
+            } else {
+                RoleState::Follower(Follower::Idle(FollowerIdle::new()))
+            };
+            Ok(Some(next))
         } else {
             Ok(None)
         }

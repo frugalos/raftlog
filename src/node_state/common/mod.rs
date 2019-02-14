@@ -142,6 +142,24 @@ where
         self.install_snapshot.is_some()
     }
 
+    /// Returns `true` if and only if a node is installing snapshot and should not do
+    /// anything else until the running snapshot installation completes.
+    /// This method should be used to determine the next state of a node.
+    ///
+    /// The difference between `is_snapshot_installing` and `is_focusing_on_installing_snapshot` is
+    /// that a node can concurrently process multiple tasks while installing snapshot.
+    ///
+    /// Calls `is_snapshot_installing` if you want to confirm whether another snapshot installation
+    /// is running or not.
+    pub fn is_focusing_on_installing_snapshot(&self) -> bool {
+        if let Some(ref snapshot) = self.install_snapshot {
+            // This condition is a bit complicated.
+            // See https://github.com/frugalos/raftlog/pull/16#discussion_r250061583.
+            return self.log().tail().index < snapshot.summary.tail.index;
+        }
+        false
+    }
+
     /// `Leader`状態に遷移する.
     pub fn transit_to_leader(&mut self) -> RoleState<IO> {
         self.set_role(Role::Leader);
@@ -426,5 +444,209 @@ impl<IO: Io> Future for InstallSnapshot<IO> {
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         Ok(track!(self.future.poll())?.map(|()| self.summary.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use log::{LogEntry, LogPrefix};
+    use std::collections::BTreeSet;
+    use trackable::result::TestResult;
+
+    #[test]
+    fn is_snapshot_installing_works() -> TestResult {
+        let cluster = make_cluster_config(3);
+        let io = NullIo(cluster.clone());
+        let node_id = cluster.members().last().expect("never fails");
+        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let prefix = LogPrefix {
+            tail: LogPosition::default(),
+            config: cluster.clone(),
+            snapshot: Vec::default(),
+        };
+
+        assert!(!common.is_snapshot_installing());
+        common.install_snapshot(prefix)?;
+        assert!(common.is_snapshot_installing());
+
+        Ok(())
+    }
+
+    #[test]
+    fn is_focusing_on_installing_snapshot_works() -> TestResult {
+        let cluster = make_cluster_config(3);
+        let io = NullIo(cluster.clone());
+        let node_id = cluster.members().last().expect("never fails");
+        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let prev_term = Term::new(0);
+        let node_prefix = LogPrefix {
+            tail: LogPosition {
+                prev_term: prev_term.clone(),
+                index: LogIndex::new(3),
+            },
+            config: cluster.clone(),
+            snapshot: vec![0],
+        };
+        let log_suffix = LogSuffix {
+            head: LogPosition {
+                prev_term: prev_term.clone(),
+                index: LogIndex::new(3),
+            },
+            entries: vec![
+                LogEntry::Command {
+                    term: prev_term.clone(),
+                    command: Vec::default(),
+                },
+                LogEntry::Command {
+                    term: prev_term.clone(),
+                    command: Vec::default(),
+                },
+                LogEntry::Command {
+                    term: prev_term.clone(),
+                    command: Vec::default(),
+                },
+            ],
+        };
+        // The prefix of a leader is a bit ahead.
+        let leader_prefix = LogPrefix {
+            tail: LogPosition {
+                prev_term: prev_term.clone(),
+                index: LogIndex::new(5),
+            },
+            config: cluster.clone(),
+            snapshot: vec![1],
+        };
+
+        assert!(!common.is_focusing_on_installing_snapshot());
+        // Applies a prefix before tests.
+        common.handle_log_snapshot_loaded(node_prefix.clone())?;
+        common.install_snapshot(leader_prefix)?;
+        // The node is installing a snapshot and focusing on the installation.
+        assert!(common.is_focusing_on_installing_snapshot());
+        // Appends new log entries.
+        // Now `committed_tail` < `the tail of a prefix(snapshot)` < `appended_tail`
+        common.handle_log_appended(&log_suffix)?;
+        assert_eq!(
+            common.log().tail(),
+            LogPosition {
+                prev_term: prev_term.clone(),
+                index: LogIndex::new(6)
+            }
+        );
+        // The node is not focusing on the installation.
+        assert!(!common.is_focusing_on_installing_snapshot());
+
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    /// Note: Give desired implementations if needed.
+    struct NullIo(ClusterConfig);
+    impl Io for NullIo {
+        type SaveBallot = SaveBallotImpl;
+        type LoadBallot = LoadBallotImpl;
+        type SaveLog = SaveLogImpl;
+        type LoadLog = LoadLogImpl;
+        type Timeout = TimeoutImpl;
+
+        fn try_recv_message(&mut self) -> Result<Option<Message>> {
+            Ok(None)
+        }
+
+        fn send_message(&mut self, _message: Message) {}
+
+        fn save_ballot(&mut self, _ballot: Ballot) -> Self::SaveBallot {
+            SaveBallotImpl
+        }
+
+        fn load_ballot(&mut self) -> Self::LoadBallot {
+            LoadBallotImpl
+        }
+
+        fn save_log_prefix(&mut self, _prefix: LogPrefix) -> Self::SaveLog {
+            SaveLogImpl
+        }
+
+        fn save_log_suffix(&mut self, _suffix: &LogSuffix) -> Self::SaveLog {
+            SaveLogImpl
+        }
+
+        fn load_log(&mut self, _start: LogIndex, _end: Option<LogIndex>) -> Self::LoadLog {
+            LoadLogImpl(self.0.clone())
+        }
+
+        fn create_timeout(&mut self, _role: Role) -> Self::Timeout {
+            TimeoutImpl
+        }
+    }
+
+    #[derive(Debug)]
+    struct SaveBallotImpl;
+    impl Future for SaveBallotImpl {
+        type Item = ();
+        type Error = Error;
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            Ok(Async::Ready(()))
+        }
+    }
+
+    #[derive(Debug)]
+    struct LoadBallotImpl;
+    impl Future for LoadBallotImpl {
+        type Item = Option<Ballot>;
+        type Error = Error;
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            Ok(Async::Ready(None))
+        }
+    }
+
+    #[derive(Debug)]
+    struct SaveLogImpl;
+    impl Future for SaveLogImpl {
+        type Item = ();
+        type Error = Error;
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            Ok(Async::Ready(()))
+        }
+    }
+
+    #[derive(Debug)]
+    struct LoadLogImpl(ClusterConfig);
+    impl Future for LoadLogImpl {
+        type Item = Log;
+        type Error = Error;
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            let prefix = LogPrefix {
+                tail: LogPosition::default(),
+                config: self.0.clone(),
+                snapshot: Vec::default(),
+            };
+            Ok(Async::Ready(Log::Prefix(prefix)))
+        }
+    }
+
+    #[derive(Debug)]
+    struct TimeoutImpl;
+    impl Future for TimeoutImpl {
+        type Item = ();
+        type Error = Error;
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            Ok(Async::Ready(()))
+        }
+    }
+
+    /// Returns `ClusterConfig`.
+    fn make_cluster_config(size: usize) -> ClusterConfig {
+        let mut members = BTreeSet::new();
+        for i in 0..size {
+            members.insert(NodeId::new(i.to_string()));
+        }
+        ClusterConfig::new(members)
     }
 }
