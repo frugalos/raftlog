@@ -103,7 +103,10 @@ impl LogHistory {
                 // 新しい選挙期間(`Term`)に移った
                 track_assert!(
                     self.last_record().head.prev_term < tail.prev_term,
-                    ErrorKind::Other
+                    ErrorKind::Other,
+                    "last_record.head={:?}, tail={:?}",
+                    self.last_record().head,
+                    tail
                 );
                 let record = HistoryRecord::new(tail, self.last_record().config.clone());
                 self.records.push_back(record);
