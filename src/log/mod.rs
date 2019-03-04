@@ -74,7 +74,7 @@ impl LogSuffix {
         let prev_term = self
             .entries
             .last()
-            .map_or(self.head.prev_term, |e| e.term());
+            .map_or(self.head.prev_term, LogEntry::term);
         let index = self.head.index + self.entries.len();
         LogPosition { prev_term, index }
     }
