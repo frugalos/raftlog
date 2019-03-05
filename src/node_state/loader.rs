@@ -114,10 +114,10 @@ mod tests {
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster);
+        let mut common = Common::new(node_id.clone(), io, cluster.clone());
         let mut loader = Loader::new(&mut common);
 
-        // prefix には空の snapshotがあり、tail は 1 を指している。
+        // prefix には空の snapshot があり、tail は 1 を指している。
         // suffix には position 1 から 1 エントリが保存されている。
         // term は変更なし。
         let term = Term::new(1);
@@ -128,7 +128,7 @@ mod tests {
         };
         handle.set_initial_log_prefix(LogPrefix {
             tail: prefix_tail.clone(),
-            config: handle.cluster.clone(),
+            config: cluster.clone(),
             snapshot: vec![],
         });
         handle.set_initial_log_suffix(

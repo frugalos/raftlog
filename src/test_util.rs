@@ -47,6 +47,8 @@ pub mod tests {
         }
     }
 
+    /// `TestIo` を操作するためのハンドル。
+    #[derive(Clone)]
     pub struct TestIoHandle {
         pub cluster: ClusterConfig,
         logs: Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>,
@@ -67,6 +69,7 @@ pub mod tests {
         }
 
         /// ログを追加する。2回目以降のログ読み込みを想定しているため end は常に指定する。
+        #[allow(dead_code)]
         pub fn append_log(&mut self, start: LogIndex, end: LogIndex, log: Log) {
             let mut logs = self.logs.lock().expect("Never fails");
             logs.insert((start, Some(end)), log);

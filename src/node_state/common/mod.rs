@@ -450,15 +450,20 @@ impl<IO: Io> Future for InstallSnapshot<IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use log::{LogEntry, LogPrefix};
-    use std::collections::BTreeSet;
     use trackable::result::TestResult;
+
+    use log::{LogEntry, LogPrefix};
+    use test_util::tests::TestIoBuilder;
 
     #[test]
     fn is_snapshot_installing_works() -> TestResult {
-        let cluster = make_cluster_config(3);
-        let io = NullIo(cluster.clone());
-        let node_id = cluster.members().last().expect("never fails");
+        let node_id: NodeId = "node1".into();
+        let io = TestIoBuilder::new()
+            .add_member(node_id.clone())
+            .add_member("node2".into())
+            .add_member("node3".into())
+            .finish();
+        let cluster = io.cluster.clone();
         let mut common = Common::new(node_id.clone(), io, cluster.clone());
         let prefix = LogPrefix {
             tail: LogPosition::default(),
@@ -475,9 +480,13 @@ mod tests {
 
     #[test]
     fn is_focusing_on_installing_snapshot_works() -> TestResult {
-        let cluster = make_cluster_config(3);
-        let io = NullIo(cluster.clone());
-        let node_id = cluster.members().last().expect("never fails");
+        let node_id: NodeId = "node1".into();
+        let io = TestIoBuilder::new()
+            .add_member(node_id.clone())
+            .add_member("node2".into())
+            .add_member("node3".into())
+            .finish();
+        let cluster = io.cluster.clone();
         let mut common = Common::new(node_id.clone(), io, cluster.clone());
         let prev_term = Term::new(0);
         let node_prefix = LogPrefix {
@@ -538,115 +547,5 @@ mod tests {
         assert!(!common.is_focusing_on_installing_snapshot());
 
         Ok(())
-    }
-
-    #[derive(Debug)]
-    /// Note: Give desired implementations if needed.
-    struct NullIo(ClusterConfig);
-    impl Io for NullIo {
-        type SaveBallot = SaveBallotImpl;
-        type LoadBallot = LoadBallotImpl;
-        type SaveLog = SaveLogImpl;
-        type LoadLog = LoadLogImpl;
-        type Timeout = TimeoutImpl;
-
-        fn try_recv_message(&mut self) -> Result<Option<Message>> {
-            Ok(None)
-        }
-
-        fn send_message(&mut self, _message: Message) {}
-
-        fn save_ballot(&mut self, _ballot: Ballot) -> Self::SaveBallot {
-            SaveBallotImpl
-        }
-
-        fn load_ballot(&mut self) -> Self::LoadBallot {
-            LoadBallotImpl
-        }
-
-        fn save_log_prefix(&mut self, _prefix: LogPrefix) -> Self::SaveLog {
-            SaveLogImpl
-        }
-
-        fn save_log_suffix(&mut self, _suffix: &LogSuffix) -> Self::SaveLog {
-            SaveLogImpl
-        }
-
-        fn load_log(&mut self, _start: LogIndex, _end: Option<LogIndex>) -> Self::LoadLog {
-            LoadLogImpl(self.0.clone())
-        }
-
-        fn create_timeout(&mut self, _role: Role) -> Self::Timeout {
-            TimeoutImpl
-        }
-    }
-
-    #[derive(Debug)]
-    struct SaveBallotImpl;
-    impl Future for SaveBallotImpl {
-        type Item = ();
-        type Error = Error;
-
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(()))
-        }
-    }
-
-    #[derive(Debug)]
-    struct LoadBallotImpl;
-    impl Future for LoadBallotImpl {
-        type Item = Option<Ballot>;
-        type Error = Error;
-
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(None))
-        }
-    }
-
-    #[derive(Debug)]
-    struct SaveLogImpl;
-    impl Future for SaveLogImpl {
-        type Item = ();
-        type Error = Error;
-
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(()))
-        }
-    }
-
-    #[derive(Debug)]
-    struct LoadLogImpl(ClusterConfig);
-    impl Future for LoadLogImpl {
-        type Item = Log;
-        type Error = Error;
-
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            let prefix = LogPrefix {
-                tail: LogPosition::default(),
-                config: self.0.clone(),
-                snapshot: Vec::default(),
-            };
-            Ok(Async::Ready(Log::Prefix(prefix)))
-        }
-    }
-
-    #[derive(Debug)]
-    struct TimeoutImpl;
-    impl Future for TimeoutImpl {
-        type Item = ();
-        type Error = Error;
-
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(()))
-        }
-    }
-
-    /// Returns `ClusterConfig`.
-    fn make_cluster_config(size: usize) -> ClusterConfig {
-        let mut members = BTreeSet::new();
-        for i in 0..size {
-            members.insert(NodeId::new(i.to_string()));
-        }
-        ClusterConfig::new(members)
     }
 }
