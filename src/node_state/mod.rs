@@ -169,3 +169,37 @@ impl<IO: Io> RoleState<IO> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_util::tests::TestIoBuilder;
+
+    #[test]
+    fn node_state_is_loading_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let node = NodeState::load("test".into(), cluster, io);
+        assert!(node.is_loading());
+    }
+
+    #[test]
+    fn role_state_is_loader_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new("test".into(), io, cluster);
+        let state = RoleState::Loader(Loader::new(&mut common));
+        assert!(state.is_loader());
+        assert!(!state.is_candidate());
+    }
+
+    #[test]
+    fn role_state_is_candidate_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new("test".into(), io, cluster);
+        let state = RoleState::Candidate(Candidate::new(&mut common));
+        assert!(!state.is_loader());
+        assert!(state.is_candidate());
+    }
+}
