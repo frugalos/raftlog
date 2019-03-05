@@ -98,3 +98,63 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use election::Term;
+    use log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
+    use node::NodeId;
+    use test_util::tests::TestIoBuilder;
+    use trackable::result::TestResult;
+
+    #[test]
+    fn it_works() -> TestResult {
+        let node_id: NodeId = "node1".into();
+        let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
+        let mut handle = io.handle();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new(node_id.clone(), io, cluster);
+        let mut loader = Loader::new(&mut common);
+
+        // prefix には空の snapshotがあり、tail は 1 を指している。
+        // suffix には position 1 から 1 エントリが保存されている。
+        // term は変更なし。
+        let term = Term::new(1);
+        let suffix_head = LogIndex::new(1);
+        let prefix_tail = LogPosition {
+            prev_term: term.clone(),
+            index: suffix_head.clone(),
+        };
+        handle.set_initial_log_prefix(LogPrefix {
+            tail: prefix_tail.clone(),
+            config: handle.cluster.clone(),
+            snapshot: vec![],
+        });
+        handle.set_initial_log_suffix(
+            suffix_head.clone(),
+            LogSuffix {
+                head: LogPosition {
+                    prev_term: term.clone(),
+                    index: suffix_head.clone(),
+                },
+                entries: vec![LogEntry::Noop { term: term.clone() }],
+            },
+        );
+        loop {
+            if let Some(next) = track!(loader.run_once(&mut common))? {
+                assert!(next.is_candidate());
+                // term は変化なし
+                assert_eq!(term, common.log().tail().prev_term);
+                // 追記されたログエントリの tail が 1 つ先に進んでいる
+                assert_eq!(LogIndex::new(2), common.log().tail().index);
+                // consumed と committed は prefix の状態のまま
+                assert_eq!(prefix_tail.index, common.log().consumed_tail().index);
+                assert_eq!(prefix_tail.index, common.log().committed_tail().index);
+                break;
+            }
+        }
+
+        Ok(())
+    }
+}

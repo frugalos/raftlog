@@ -35,11 +35,7 @@ impl<IO: Io> NodeState<IO> {
         NodeState { common, role }
     }
     pub fn is_loading(&self) -> bool {
-        if let RoleState::Loader(_) = self.role {
-            true
-        } else {
-            false
-        }
+        self.role.is_loader()
     }
     pub fn start_election(&mut self) {
         if let RoleState::Follower(_) = self.role {
@@ -151,4 +147,25 @@ pub enum RoleState<IO: Io> {
 
     /// リーダ (詳細はRaftの論文を参照)
     Leader(Leader<IO>),
+}
+
+impl<IO: Io> RoleState<IO> {
+    /// Returns true if this role state is `Loader`.
+    pub fn is_loader(&self) -> bool {
+        if let RoleState::Loader(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if this role state is `Candidate`.
+    #[cfg(test)]
+    pub fn is_candidate(&self) -> bool {
+        if let RoleState::Candidate(_) = self {
+            true
+        } else {
+            false
+        }
+    }
 }

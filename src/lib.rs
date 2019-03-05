@@ -6,6 +6,8 @@
 //!
 //! [Raft]: https://raft.github.io/
 #![warn(missing_docs)]
+#[cfg(test)]
+extern crate fibers;
 extern crate futures;
 #[macro_use]
 extern crate trackable;
@@ -24,6 +26,7 @@ mod error;
 mod io;
 mod node_state;
 mod replicated_log;
+mod test_util;
 
 /// クレート固有の`Result`型.
 pub type Result<T> = ::std::result::Result<T, Error>;

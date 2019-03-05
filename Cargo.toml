@@ -16,3 +16,6 @@ travis-ci = {repository = "frugalos/raftlog"}
 [dependencies]
 futures = "0.1"
 trackable = "0.2"
+
+[dev-dependencies]
+fibers = "0.1"
