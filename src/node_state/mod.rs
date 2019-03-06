@@ -35,11 +35,7 @@ impl<IO: Io> NodeState<IO> {
         NodeState { common, role }
     }
     pub fn is_loading(&self) -> bool {
-        if let RoleState::Loader(_) = self.role {
-            true
-        } else {
-            false
-        }
+        self.role.is_loader()
     }
     pub fn start_election(&mut self) {
         if let RoleState::Follower(_) = self.role {
@@ -151,4 +147,59 @@ pub enum RoleState<IO: Io> {
 
     /// リーダ (詳細はRaftの論文を参照)
     Leader(Leader<IO>),
+}
+
+impl<IO: Io> RoleState<IO> {
+    /// Returns true if this role state is `Loader`.
+    pub fn is_loader(&self) -> bool {
+        if let RoleState::Loader(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if this role state is `Candidate`.
+    #[cfg(test)]
+    pub fn is_candidate(&self) -> bool {
+        if let RoleState::Candidate(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_util::tests::TestIoBuilder;
+
+    #[test]
+    fn node_state_is_loading_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let node = NodeState::load("test".into(), cluster, io);
+        assert!(node.is_loading());
+    }
+
+    #[test]
+    fn role_state_is_loader_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new("test".into(), io, cluster);
+        let state = RoleState::Loader(Loader::new(&mut common));
+        assert!(state.is_loader());
+        assert!(!state.is_candidate());
+    }
+
+    #[test]
+    fn role_state_is_candidate_works() {
+        let io = TestIoBuilder::new().finish();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new("test".into(), io, cluster);
+        let state = RoleState::Candidate(Candidate::new(&mut common));
+        assert!(!state.is_loader());
+        assert!(state.is_candidate());
+    }
 }

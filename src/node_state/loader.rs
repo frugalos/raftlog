@@ -98,3 +98,111 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use election::Term;
+    use log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
+    use node::NodeId;
+    use test_util::tests::TestIoBuilder;
+    use trackable::result::TestResult;
+
+    #[test]
+    fn it_works() -> TestResult {
+        let node_id: NodeId = "node1".into();
+        let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
+        let mut handle = io.handle();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut loader = Loader::new(&mut common);
+
+        // prefix には空の snapshot があり、tail は 1 を指している。
+        // suffix には position 1 から 1 エントリが保存されている。
+        // term は変更なし。
+        let term = Term::new(1);
+        let suffix_head = LogIndex::new(1);
+        let prefix_tail = LogPosition {
+            prev_term: term.clone(),
+            index: suffix_head.clone(),
+        };
+        handle.set_initial_log_prefix(LogPrefix {
+            tail: prefix_tail.clone(),
+            config: cluster.clone(),
+            snapshot: vec![],
+        });
+        handle.set_initial_log_suffix(
+            suffix_head.clone(),
+            LogSuffix {
+                head: LogPosition {
+                    prev_term: term.clone(),
+                    index: suffix_head.clone(),
+                },
+                entries: vec![LogEntry::Noop { term: term.clone() }],
+            },
+        );
+        loop {
+            if let Some(next) = track!(loader.run_once(&mut common))? {
+                assert!(next.is_candidate());
+                // term は変化なし
+                assert_eq!(term, common.log().tail().prev_term);
+                // 追記されたログエントリの tail が 1 つ先に進んでいる
+                assert_eq!(LogIndex::new(2), common.log().tail().index);
+                // consumed と committed は prefix の状態のまま
+                assert_eq!(prefix_tail.index, common.log().consumed_tail().index);
+                assert_eq!(prefix_tail.index, common.log().committed_tail().index);
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_fails_if_log_suffix_contains_older_term() -> TestResult {
+        let node_id: NodeId = "node1".into();
+        let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
+        let mut handle = io.handle();
+        let cluster = io.cluster.clone();
+        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut loader = Loader::new(&mut common);
+
+        // 古い term のログが紛れ込んでいるとエラーになる
+        let term = Term::new(308);
+        let suffix_head = LogIndex::new(28405496);
+        let prefix_tail = LogPosition {
+            prev_term: term.clone(),
+            index: suffix_head.clone(),
+        };
+        handle.set_initial_log_prefix(LogPrefix {
+            tail: prefix_tail.clone(),
+            config: cluster.clone(),
+            snapshot: vec![],
+        });
+        handle.set_initial_log_suffix(
+            suffix_head.clone(),
+            LogSuffix {
+                head: LogPosition {
+                    prev_term: term.clone(),
+                    index: suffix_head.clone(),
+                },
+                entries: vec![
+                    LogEntry::Noop { term: term.clone() },
+                    LogEntry::Noop {
+                        term: Term::new(term.as_u64() - 1),
+                    },
+                ],
+            },
+        );
+
+        // Error: Other (cause; assertion failed: `self.last_record().head.prev_term < tail.prev_term`; last_record.head=LogPosition { prev_term: Term(308), index: LogIndex(28405496) }, tail=LogPosition { prev_term: Term(307), index: LogIndex(28405498) })
+        //HISTORY:
+        //  [0] at src/log/history.rs:104
+        //  [1] at src/node_state/common/mod.rs:78
+        //  [2] at src/node_state/loader.rs:58
+        //  [3] at src/node_state/loader.rs:198
+        assert!(loader.run_once(&mut common).is_err());
+
+        Ok(())
+    }
+}
