@@ -1,4 +1,6 @@
 use futures::{Poll, Stream};
+use prometrics::metrics::MetricBuilder;
+use std::sync::Arc;
 use trackable::error::ErrorKindExt;
 
 use cluster::{ClusterConfig, ClusterMembers};
@@ -6,6 +8,7 @@ use election::{Ballot, Role};
 use io::Io;
 use log::{LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, ProposalId};
 use message::SequenceNumber;
+use metrics::RaftlogMetrics;
 use node::{Node, NodeId};
 use node_state::{NodeState, RoleState};
 use {Error, ErrorKind, Result};
@@ -26,6 +29,7 @@ use {Error, ErrorKind, Result};
 /// 不要になった`ReplicatedLog`インスタンスを回収することは可能.
 pub struct ReplicatedLog<IO: Io> {
     node: NodeState<IO>,
+    metrics: Arc<RaftlogMetrics>,
 }
 impl<IO: Io> ReplicatedLog<IO> {
     /// `members`で指定されたクラスタに属する`ReplicatedLog`のローカルインスタンス(ノード)を生成する.
@@ -43,10 +47,29 @@ impl<IO: Io> ReplicatedLog<IO> {
     /// また、以前のノードを再起動したい場合でも、もし永続ストレージが壊れている等の理由で、
     /// 前回の状態を正確に復元できないのであれば、
     /// ノード名を変更して、新規ノード追加扱いにした方が安全である.
-    pub fn new(node_id: NodeId, members: ClusterMembers, io: IO) -> Self {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(
+        component: ComponentId,
+        node_id: NodeId,
+        members: ClusterMembers,
+        io: IO,
+    ) -> Result<Self> {
         let config = ClusterConfig::new(members);
-        let node = NodeState::load(node_id, config, io);
-        ReplicatedLog { node }
+        let mut builder = MetricBuilder::new();
+        builder
+            .namespace("raftlog")
+            .label("component", &component.0);
+        let metrics = track!(RaftlogMetrics::new(&builder, &node_id))?;
+        let node = NodeState::load(node_id, config, io, metrics.node_state.clone());
+        Ok(ReplicatedLog {
+            node,
+            metrics: Arc::new(metrics),
+        })
+    }
+
+    /// `raftlog` のメトリクスを返す。
+    pub fn metrics(&self) -> &Arc<RaftlogMetrics> {
+        &self.metrics
     }
 
     /// 新しいコマンドを提案する.
@@ -295,4 +318,17 @@ pub enum Event {
     /// もし`new_head`の位置が、最新のコミット済み地点よりも
     /// 新しい場合には、これとは別に`SnapshotLoaded`イベントが発行される.
     SnapshotInstalled { new_head: LogPosition },
+}
+
+/// `ReplicatedLog` を使うコンポーネントを表すラベル.
+///
+/// ラベルはメトリクスに付与される。
+#[derive(Debug, Clone)]
+pub struct ComponentId(String);
+
+impl ComponentId {
+    /// Creates a new `ComponentId` instance.
+    pub fn new(id: &str) -> ComponentId {
+        Self(id.to_owned())
+    }
 }

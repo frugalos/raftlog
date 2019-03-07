@@ -102,8 +102,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prometrics::metrics::MetricBuilder;
+
     use election::Term;
     use log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
+    use metrics::NodeStateMetrics;
     use node::NodeId;
     use test_util::tests::TestIoBuilder;
     use trackable::result::TestResult;
@@ -111,10 +114,11 @@ mod tests {
     #[test]
     fn it_works() -> TestResult {
         let node_id: NodeId = "node1".into();
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
         let mut loader = Loader::new(&mut common);
 
         // prefix には空の snapshot があり、tail は 1 を指している。
@@ -161,10 +165,11 @@ mod tests {
     #[test]
     fn it_fails_if_log_suffix_contains_older_term() -> TestResult {
         let node_id: NodeId = "node1".into();
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
         let mut loader = Loader::new(&mut common);
 
         // 古い term のログが紛れ込んでいるとエラーになる

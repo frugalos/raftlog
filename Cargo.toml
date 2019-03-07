@@ -1,6 +1,6 @@
 [package]
 name = "raftlog"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["The FrugalOS Developers"]
 description = "An implementation of distributed replicated log based on the Raft algorithm"
 homepage = "https://github.com/frugalos/raftlog"
@@ -16,6 +16,7 @@ travis-ci = {repository = "frugalos/raftlog"}
 [dependencies]
 futures = "0.1"
 trackable = "0.2"
+prometrics = "0.1"
 
 [dev-dependencies]
 fibers = "0.1"

@@ -9,17 +9,19 @@
 #[cfg(test)]
 extern crate fibers;
 extern crate futures;
+extern crate prometrics;
 #[macro_use]
 extern crate trackable;
 
 pub use error::{Error, ErrorKind};
 pub use io::Io;
-pub use replicated_log::{Event, ReplicatedLog};
+pub use replicated_log::{ComponentId, Event, ReplicatedLog};
 
 pub mod cluster;
 pub mod election;
 pub mod log;
 pub mod message;
+pub mod metrics;
 pub mod node;
 
 mod error;
