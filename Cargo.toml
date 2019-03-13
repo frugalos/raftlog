@@ -1,6 +1,6 @@
 [package]
 name = "raftlog"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["The FrugalOS Developers"]
 description = "An implementation of distributed replicated log based on the Raft algorithm"
 homepage = "https://github.com/frugalos/raftlog"
