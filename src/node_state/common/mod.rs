@@ -397,8 +397,15 @@ where
             }
 
             if self.local_node.id == *successor {
-                Some(self.transit_to_leader())
+                // save_ballot処理などを共通化したいので、一度candidateを経由する。
+                // 既に、過半数以上のノードが`LogEntry::Retire`をcommitしているはずなので、
+                // この立候補は即座に成功するはず.
+                //
+                // (少し実装を修正すれば、直接leaderに遷移することも可能なはず)
+                Some(self.transit_to_candidate())
             } else {
+                let new_term = (self.local_node.ballot.term.as_u64() + 1).into();
+                self.local_node.ballot.term = new_term;
                 Some(self.transit_to_follower(successor.clone()))
             }
         } else {
