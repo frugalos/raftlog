@@ -10,6 +10,7 @@ futures = "0.1"
 serde = "1"
 serde_derive = "1"
 serdeconv = "0.3"
+prometrics = "0.1"
 raftlog = { path = "../" }
 rand = "0.5"
 trackable = "0.2"

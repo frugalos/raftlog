@@ -1,5 +1,6 @@
 //! シミュレータ上で動作するプロセス.
 use futures::{Async, Future, Poll, Stream};
+use prometrics::metrics::MetricBuilder;
 use raftlog::cluster::ClusterMembers;
 use raftlog::log::{LogEntry, LogIndex, ProposalId};
 use raftlog::message::SequenceNumber;
@@ -249,8 +250,9 @@ impl Alive {
         members: ClusterMembers,
         io: DeterministicIo,
     ) -> Self {
+        let metric_builder = MetricBuilder::new();
         let machine = MachineState::new();
-        let rlog = ReplicatedLog::new(node_id, members, io);
+        let rlog = ReplicatedLog::new(node_id, members, io, &metric_builder).expect("Never fails");
         Alive {
             logger,
             machine,
@@ -266,8 +268,9 @@ impl Alive {
         old_members: ClusterMembers,
         io: DeterministicIo,
     ) -> Self {
+        let metric_builder = MetricBuilder::new();
         let machine = MachineState::new();
-        let rlog = ReplicatedLog::new(node_id, old_members, io);
+        let rlog = ReplicatedLog::new(node_id, old_members, io, &metric_builder).expect("Never fails");
         Alive {
             logger,
             machine,

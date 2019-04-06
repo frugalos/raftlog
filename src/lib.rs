@@ -15,7 +15,7 @@ extern crate trackable;
 
 pub use error::{Error, ErrorKind};
 pub use io::Io;
-pub use replicated_log::{ComponentId, Event, ReplicatedLog};
+pub use replicated_log::{Event, ReplicatedLog};
 
 pub mod cluster;
 pub mod election;

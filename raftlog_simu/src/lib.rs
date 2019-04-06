@@ -1,4 +1,5 @@
 extern crate futures;
+extern crate prometrics;
 extern crate raftlog;
 extern crate rand;
 extern crate serde;

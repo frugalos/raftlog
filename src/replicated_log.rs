@@ -49,17 +49,15 @@ impl<IO: Io> ReplicatedLog<IO> {
     /// ノード名を変更して、新規ノード追加扱いにした方が安全である.
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
-        component: ComponentId,
         node_id: NodeId,
         members: ClusterMembers,
         io: IO,
+        metric_builder: &MetricBuilder,
     ) -> Result<Self> {
         let config = ClusterConfig::new(members);
-        let mut builder = MetricBuilder::new();
-        builder
-            .namespace("raftlog")
-            .label("component", &component.0);
-        let metrics = track!(RaftlogMetrics::new(&builder, &node_id))?;
+        let mut metric_builder = metric_builder.clone();
+        metric_builder.namespace("raftlog");
+        let metrics = track!(RaftlogMetrics::new(&metric_builder, &node_id))?;
         let node = NodeState::load(node_id, config, io, metrics.node_state.clone());
         Ok(ReplicatedLog {
             node,
@@ -318,17 +316,4 @@ pub enum Event {
     /// もし`new_head`の位置が、最新のコミット済み地点よりも
     /// 新しい場合には、これとは別に`SnapshotLoaded`イベントが発行される.
     SnapshotInstalled { new_head: LogPosition },
-}
-
-/// `ReplicatedLog` を使うコンポーネントを表すラベル.
-///
-/// ラベルはメトリクスに付与される。
-#[derive(Debug, Clone)]
-pub struct ComponentId(String);
-
-impl ComponentId {
-    /// Creates a new `ComponentId` instance.
-    pub fn new(id: &str) -> ComponentId {
-        Self(id.to_owned())
-    }
 }
