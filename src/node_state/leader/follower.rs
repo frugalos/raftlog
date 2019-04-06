@@ -165,6 +165,8 @@ impl<IO: Io> FollowersManager<IO> {
     }
 
     pub fn choice_successor(&self) -> Option<NodeId> {
+        // 一番ローカルログが新しそうなfollowerを次のリーダ候補として選択.
+        // TODO: `x.1.log_tail`が、自ノードのlast_commited以上であることは確認しておく必要がある.
         self.followers
             .iter()
             .filter(|x| x.1.synced)
