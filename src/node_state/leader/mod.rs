@@ -4,6 +4,7 @@ use super::{Common, NextState};
 use election::Role;
 use log::{LogEntry, LogIndex, LogSuffix, ProposalId};
 use message::{Message, SequenceNumber};
+use node::NodeId;
 use {ErrorKind, Io, Result};
 
 mod appender;
@@ -118,6 +119,10 @@ impl<IO: Io> Leader<IO> {
     }
     pub fn last_heartbeat_ack(&self) -> SequenceNumber {
         self.followers.latest_hearbeat_ack()
+    }
+
+    pub fn choice_successor(&self) -> Option<NodeId> {
+        self.followers.choice_successor()
     }
 
     fn handle_change_config(&mut self, common: &mut Common<IO>) -> Result<()> {

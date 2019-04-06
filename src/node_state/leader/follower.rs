@@ -164,6 +164,14 @@ impl<IO: Io> FollowersManager<IO> {
         self.config = config.clone();
     }
 
+    pub fn choice_successor(&self) -> Option<NodeId> {
+        self.followers
+            .iter()
+            .filter(|x| x.1.synced)
+            .max_by_key(|x| (x.1.log_tail, x.1.last_seq_no))
+            .map(|x| x.0.clone())
+    }
+
     fn update_follower_state(&mut self, common: &Common<IO>, reply: &AppendEntriesReply) -> bool {
         let follower = &mut self
             .followers
