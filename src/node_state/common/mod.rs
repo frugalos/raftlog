@@ -8,7 +8,7 @@ use super::leader::Leader;
 use super::{NextState, RoleState};
 use cluster::ClusterConfig;
 use election::{Ballot, Role, Term};
-use log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
+use log::{Log, LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use message::{Message, MessageHeader, SequenceNumber};
 use node::{Node, NodeId};
 use {Error, ErrorKind, Event, Io, Result};
@@ -341,6 +341,7 @@ where
 
     /// バックグランド処理を一単位実行する.
     pub fn run_once(&mut self) -> Result<NextState<IO>> {
+        let mut next_state = None;
         loop {
             // スナップショットのインストール処理
             if let Async::Ready(Some(summary)) = track!(self.install_snapshot.poll())? {
@@ -359,7 +360,9 @@ where
                 self.load_committed = None;
                 match log {
                     Log::Prefix(snapshot) => track!(self.handle_log_snapshot_loaded(snapshot))?,
-                    Log::Suffix(slice) => track!(self.handle_committed(slice))?,
+                    Log::Suffix(slice) => {
+                        next_state = track!(self.handle_committed(slice))?;
+                    }
                 }
             }
 
@@ -374,7 +377,7 @@ where
             let end = self.history.committed_tail().index;
             self.load_committed = Some(self.load_log(start, Some(end)));
         }
-        Ok(None)
+        Ok(next_state)
     }
 
     /// RPCの要求用のインスタンスを返す.
@@ -387,12 +390,32 @@ where
         RpcCallee::new(self, caller)
     }
 
-    fn handle_committed(&mut self, suffix: LogSuffix) -> Result<()> {
+    fn handle_retirement(&mut self, entry: &LogEntry) -> NextState<IO> {
+        if let LogEntry::Retire { term, successor } = &entry {
+            if self.term() != *term {
+                return None;
+            }
+
+            if self.local_node.id == *successor {
+                Some(self.transit_to_leader())
+            } else {
+                Some(self.transit_to_follower(successor.clone()))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn handle_committed(&mut self, suffix: LogSuffix) -> Result<NextState<IO>> {
+        let mut next_state = None;
+
         let new_tail = suffix.tail();
         for (index, entry) in (suffix.head.index.as_u64()..)
             .map(LogIndex::new)
             .zip(suffix.entries.into_iter())
         {
+            next_state = self.handle_retirement(&entry);
+
             let event = Event::Committed { index, entry };
             self.events.push_back(event);
         }
@@ -401,7 +424,7 @@ where
             // そのスナップショットのロードが行われるまでの間には、上の条件が`false`になる可能性がある.
             track!(self.history.record_consumed(new_tail.index))?;
         }
-        Ok(())
+        Ok(next_state)
     }
     fn set_role(&mut self, new_role: Role) {
         if self.local_node.role != new_role {
