@@ -409,6 +409,8 @@ where
                 // 既に、過半数以上のノードが`LogEntry::Retire`をcommitしているはずなので、
                 // この立候補は即座に成功するはず.
                 Some(self.transit_to_candidate())
+            } else {
+                None
             }
         } else {
             None
