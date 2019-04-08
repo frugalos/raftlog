@@ -121,8 +121,8 @@ impl<IO: Io> Leader<IO> {
         self.followers.latest_hearbeat_ack()
     }
 
-    pub fn choice_successor(&self) -> Option<NodeId> {
-        self.followers.choice_successor()
+    pub fn choice_successor(&self, common: &Common<IO>) -> Option<NodeId> {
+        self.followers.choice_successor(&common.local_node().id)
     }
 
     fn handle_change_config(&mut self, common: &mut Common<IO>) -> Result<()> {

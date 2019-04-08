@@ -121,7 +121,7 @@ impl<IO: Io> ReplicatedLog<IO> {
     /// 退任は失敗する.
     pub fn propose_retire(&mut self) -> Result<Option<ProposalId>> {
         let successor = if let RoleState::Leader(ref mut leader) = self.node.role {
-            leader.choice_successor()
+            leader.choice_successor(&mut self.node.common)
         } else {
             track_panic!(ErrorKind::NotLeader);
         };
