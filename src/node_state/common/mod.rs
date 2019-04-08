@@ -396,6 +396,14 @@ where
                 return None;
             }
 
+            if self.local_node.role == Role::Leader {
+                // Notifies this commit to cluster members immediately.
+                let head = self.log().tail();
+                let entries = Vec::new();
+                let slice = LogSuffix { head, entries };
+                self.rpc_caller().broadcast_append_entries(slice);
+            }
+
             if self.local_node.id == *successor {
                 // save_ballot処理などを共通化したいので、一度candidateを経由する。
                 // 既に、過半数以上のノードが`LogEntry::Retire`をcommitしているはずなので、
