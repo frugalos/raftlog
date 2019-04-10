@@ -108,6 +108,8 @@ impl<IO: Io> ReplicatedLog<IO> {
             let term = self.node.common.term();
             let entry = LogEntry::Retire { term, successor };
             let proposal_id = leader.propose(&mut self.node.common, entry);
+
+            leader.start_retire();
             Ok(proposal_id)
         } else {
             track_panic!(ErrorKind::NotLeader)

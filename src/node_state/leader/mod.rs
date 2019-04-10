@@ -28,6 +28,7 @@ pub struct Leader<IO: Io> {
     followers: FollowersManager<IO>,
     appender: LogAppender<IO>,
     commit_lower_bound: LogIndex,
+    retiring: bool,
 }
 impl<IO: Io> Leader<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
@@ -47,6 +48,7 @@ impl<IO: Io> Leader<IO> {
             followers,
             appender,
             commit_lower_bound: term_start_index,
+            retiring: false,
         }
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -106,7 +108,9 @@ impl<IO: Io> Leader<IO> {
     }
     pub fn propose(&mut self, common: &mut Common<IO>, entry: LogEntry) -> ProposalId {
         let proposal_id = self.next_proposal_id(common);
-        self.appender.append(common, vec![entry]);
+        if !self.retiring {
+            self.appender.append(common, vec![entry]);
+        }
         proposal_id
     }
     pub fn heartbeat_syn(&mut self, common: &mut Common<IO>) -> SequenceNumber {
@@ -123,6 +127,10 @@ impl<IO: Io> Leader<IO> {
 
     pub fn choice_successor(&self, common: &Common<IO>) -> Option<NodeId> {
         self.followers.choice_successor(&common.local_node().id)
+    }
+
+    pub fn start_retire(&mut self) {
+        self.retiring = true;
     }
 
     fn handle_change_config(&mut self, common: &mut Common<IO>) -> Result<()> {
