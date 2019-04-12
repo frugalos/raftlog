@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn it_works() -> TestResult {
         let node_id: NodeId = "node1".into();
-        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn it_fails_if_log_suffix_contains_older_term() -> TestResult {
         let node_id: NodeId = "node1".into();
-        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();

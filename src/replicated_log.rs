@@ -57,7 +57,7 @@ impl<IO: Io> ReplicatedLog<IO> {
         let config = ClusterConfig::new(members);
         let mut metric_builder = metric_builder.clone();
         metric_builder.namespace("raftlog");
-        let metrics = track!(RaftlogMetrics::new(&metric_builder, &node_id))?;
+        let metrics = track!(RaftlogMetrics::new(&metric_builder))?;
         let node = NodeState::load(node_id, config, io, metrics.node_state.clone());
         Ok(ReplicatedLog {
             node,

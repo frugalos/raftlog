@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn is_snapshot_installing_works() -> TestResult {
         let node_id: NodeId = "node1".into();
-        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
             .add_member(node_id.clone())
             .add_member("node2".into())
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn is_focusing_on_installing_snapshot_works() -> TestResult {
         let node_id: NodeId = "node1".into();
-        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new(), &node_id))?;
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
             .add_member(node_id.clone())
             .add_member("node2".into())

@@ -2,7 +2,6 @@
 
 use prometrics::metrics::{Counter, Gauge, Histogram, HistogramBuilder, MetricBuilder};
 
-use node::NodeId;
 use {Error, Result};
 
 /// `raftlog` 全体に関するメトリクス。
@@ -11,8 +10,8 @@ pub struct RaftlogMetrics {
     pub(crate) node_state: NodeStateMetrics,
 }
 impl RaftlogMetrics {
-    pub(crate) fn new(builder: &MetricBuilder, node: &NodeId) -> Result<Self> {
-        let node_state = track!(NodeStateMetrics::new(builder, node))?;
+    pub(crate) fn new(builder: &MetricBuilder) -> Result<Self> {
+        let node_state = track!(NodeStateMetrics::new(builder))?;
         Ok(Self { node_state })
     }
 }
@@ -30,52 +29,43 @@ pub struct NodeStateMetrics {
     pub(crate) loader_to_candidate_duration_seconds: Histogram,
 }
 impl NodeStateMetrics {
-    pub(crate) fn new(builder: &MetricBuilder, node: &NodeId) -> Result<Self> {
-        let node = node.as_str();
+    pub(crate) fn new(builder: &MetricBuilder) -> Result<Self> {
         let mut builder: MetricBuilder = builder.clone();
         builder.subsystem("node_state");
         let transit_to_candidate_total = track!(builder
             .counter("transit_to_candidate_total")
             .help("Number of transitions to candidate role")
-            .label("node", &node)
             .finish())?;
         let transit_to_follower_total = track!(builder
             .counter("transit_to_follower_total")
             .help("Number of transitions to follower role")
-            .label("node", &node)
             .finish())?;
         let transit_to_leader_total = track!(builder
             .counter("transit_to_leader_total")
             .help("Number of transitions to leader role")
-            .label("node", &node)
             .finish())?;
         let event_queue_len = track!(builder
             .gauge("event_queue_len")
             .help("Length of a raft event queue")
-            .label("node", &node)
             .finish())?;
         let poll_timeout_total = track!(builder
             .counter("poll_timeout_total")
             .help("Number of timeout")
-            .label("node", &node)
             .finish())?;
         let candidate_to_leader_duration_seconds = track!(make_role_change_histogram(
             builder
                 .histogram("candidate_to_leader_duration_seconds")
                 .help("Elapsed time moving from candidate to leader")
-                .label("node", &node)
         ))?;
         let candidate_to_follower_duration_seconds = track!(make_role_change_histogram(
             builder
                 .histogram("candidate_to_follower_duration_seconds")
                 .help("Elapsed time moving from candidate to follower")
-                .label("node", &node)
         ))?;
         let loader_to_candidate_duration_seconds = track!(make_role_change_histogram(
             builder
                 .histogram("loader_to_candidate_duration_seconds")
                 .help("Elapsed time moving from loader to candidate")
-                .label("node", &node)
         ))?;
         Ok(Self {
             transit_to_candidate_total,

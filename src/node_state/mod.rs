@@ -221,8 +221,7 @@ mod tests {
 
     #[test]
     fn node_state_is_loading_works() {
-        let metrics =
-            NodeStateMetrics::new(&MetricBuilder::new(), &"test".into()).expect("Never fails");
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
         let node = NodeState::load("test".into(), cluster, io, metrics);
@@ -231,8 +230,7 @@ mod tests {
 
     #[test]
     fn role_state_is_loader_works() {
-        let metrics =
-            NodeStateMetrics::new(&MetricBuilder::new(), &"test".into()).expect("Never fails");
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
         let mut common = Common::new("test".into(), io, cluster, metrics);
@@ -243,8 +241,7 @@ mod tests {
 
     #[test]
     fn role_state_is_candidate_works() {
-        let metrics =
-            NodeStateMetrics::new(&MetricBuilder::new(), &"test".into()).expect("Never fails");
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
         let mut common = Common::new("test".into(), io, cluster, metrics);
