@@ -1,4 +1,5 @@
 use futures::{Async, Poll, Stream};
+use std::time::Instant;
 
 pub use self::common::Common;
 
@@ -9,6 +10,7 @@ use self::leader::Leader;
 use self::loader::Loader;
 use cluster::ClusterConfig;
 use message::Message;
+use metrics::NodeStateMetrics;
 use node::NodeId;
 use {Error, Event, Io, Result};
 
@@ -27,12 +29,20 @@ type NextState<IO> = Option<RoleState<IO>>;
 pub struct NodeState<IO: Io> {
     pub common: Common<IO>,
     pub role: RoleState<IO>,
+    started_at: Instant,
+    pub metrics: NodeStateMetrics,
 }
 impl<IO: Io> NodeState<IO> {
-    pub fn load(node_id: NodeId, config: ClusterConfig, io: IO) -> Self {
-        let mut common = Common::new(node_id, io, config);
+    pub fn load(node_id: NodeId, config: ClusterConfig, io: IO, metrics: NodeStateMetrics) -> Self {
+        let mut common = Common::new(node_id, io, config, metrics.clone());
         let role = RoleState::Loader(Loader::new(&mut common));
-        NodeState { common, role }
+        let started_at = Instant::now();
+        NodeState {
+            common,
+            role,
+            started_at,
+            metrics,
+        }
     }
     pub fn is_loading(&self) -> bool {
         self.role.is_loader()
@@ -40,7 +50,7 @@ impl<IO: Io> NodeState<IO> {
     pub fn start_election(&mut self) {
         if let RoleState::Follower(_) = self.role {
             let next = self.common.transit_to_candidate();
-            self.role = next;
+            self.handle_role_change(next);
         }
     }
     fn handle_timeout(&mut self) -> Result<Option<RoleState<IO>>> {
@@ -70,6 +80,38 @@ impl<IO: Io> NodeState<IO> {
             },
         }
     }
+    fn handle_role_change(&mut self, next: RoleState<IO>) {
+        // For now, we don't require the metrics of other state transitions.
+        match (&self.role, &next) {
+            (RoleState::Candidate(_), RoleState::Leader(_)) => {
+                let elapsed = prometrics::timestamp::duration_to_seconds(self.started_at.elapsed());
+                self.metrics
+                    .candidate_to_leader_duration_seconds
+                    .observe(elapsed);
+                self.started_at = Instant::now();
+            }
+            (RoleState::Candidate(_), RoleState::Follower(_)) => {
+                let elapsed = prometrics::timestamp::duration_to_seconds(self.started_at.elapsed());
+                self.metrics
+                    .candidate_to_follower_duration_seconds
+                    .observe(elapsed);
+                self.started_at = Instant::now();
+            }
+            (RoleState::Loader(_), RoleState::Candidate(_)) => {
+                let elapsed = prometrics::timestamp::duration_to_seconds(self.started_at.elapsed());
+                self.metrics
+                    .loader_to_candidate_duration_seconds
+                    .observe(elapsed);
+                self.started_at = Instant::now();
+            }
+            (RoleState::Leader(_), RoleState::Leader(_))
+            | (RoleState::Follower(_), RoleState::Follower(_))
+            | (RoleState::Candidate(_), RoleState::Candidate(_))
+            | (RoleState::Loader(_), RoleState::Loader(_)) => {}
+            _ => self.started_at = Instant::now(),
+        }
+        self.role = next;
+    }
 }
 impl<IO: Io> Stream for NodeState<IO> {
     type Item = Event;
@@ -78,7 +120,6 @@ impl<IO: Io> Stream for NodeState<IO> {
         let mut did_something = true;
         while did_something {
             did_something = false;
-
             // イベントチェック
             if let Some(e) = self.common.next_event() {
                 return Ok(Async::Ready(Some(e)));
@@ -87,8 +128,9 @@ impl<IO: Io> Stream for NodeState<IO> {
             // タイムアウト処理
             if let Async::Ready(()) = track!(self.common.poll_timeout())? {
                 did_something = true;
+                self.metrics.poll_timeout_total.increment();
                 if let Some(next) = track!(self.handle_timeout())? {
-                    self.role = next;
+                    self.handle_role_change(next);
                 }
                 if let Some(e) = self.common.next_event() {
                     return Ok(Async::Ready(Some(e)));
@@ -98,7 +140,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             // 共通タスク
             if let Some(next) = track!(self.common.run_once())? {
                 did_something = true;
-                self.role = next;
+                self.handle_role_change(next);
             }
             if let Some(e) = self.common.next_event() {
                 return Ok(Async::Ready(Some(e)));
@@ -113,7 +155,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             };
             if let Some(next) = result {
                 did_something = true;
-                self.role = next;
+                self.handle_role_change(next);
             }
             if let Some(e) = self.common.next_event() {
                 return Ok(Async::Ready(Some(e)));
@@ -123,7 +165,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             if let Some(message) = track!(self.common.try_recv_message())? {
                 did_something = true;
                 if let Some(next) = track!(self.handle_message(message))? {
-                    self.role = next;
+                    self.handle_role_change(next);
                 }
                 if let Some(e) = self.common.next_event() {
                     return Ok(Async::Ready(Some(e)));
@@ -173,21 +215,25 @@ impl<IO: Io> RoleState<IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prometrics::metrics::MetricBuilder;
+
     use test_util::tests::TestIoBuilder;
 
     #[test]
     fn node_state_is_loading_works() {
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
-        let node = NodeState::load("test".into(), cluster, io);
+        let node = NodeState::load("test".into(), cluster, io, metrics);
         assert!(node.is_loading());
     }
 
     #[test]
     fn role_state_is_loader_works() {
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new("test".into(), io, cluster);
+        let mut common = Common::new("test".into(), io, cluster, metrics);
         let state = RoleState::Loader(Loader::new(&mut common));
         assert!(state.is_loader());
         assert!(!state.is_candidate());
@@ -195,9 +241,10 @@ mod tests {
 
     #[test]
     fn role_state_is_candidate_works() {
+        let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new("test".into(), io, cluster);
+        let mut common = Common::new("test".into(), io, cluster, metrics);
         let state = RoleState::Candidate(Candidate::new(&mut common));
         assert!(!state.is_loader());
         assert!(state.is_candidate());

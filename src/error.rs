@@ -1,3 +1,4 @@
+use prometrics;
 use std;
 use trackable::error::TrackableError;
 use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
@@ -7,6 +8,11 @@ use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
 pub struct Error(TrackableError<ErrorKind>);
 impl From<std::io::Error> for Error {
     fn from(f: std::io::Error) -> Self {
+        ErrorKind::Other.cause(f).into()
+    }
+}
+impl From<prometrics::Error> for Error {
+    fn from(f: prometrics::Error) -> Self {
         ErrorKind::Other.cause(f).into()
     }
 }
