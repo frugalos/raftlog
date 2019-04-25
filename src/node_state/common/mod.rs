@@ -190,7 +190,11 @@ where
     }
 
     /// `Follower`状態に遷移する.
-    pub fn transit_to_follower(&mut self, followee: NodeId) -> RoleState<IO> {
+    pub fn transit_to_follower(
+        &mut self,
+        followee: NodeId,
+        pending_vote: Option<MessageHeader>,
+    ) -> RoleState<IO> {
         self.metrics.transit_to_follower_total.increment();
         let new_ballot = Ballot {
             term: self.local_node.ballot.term,
@@ -198,7 +202,7 @@ where
         };
         self.set_ballot(new_ballot);
         self.set_role(Role::Follower);
-        RoleState::Follower(Follower::new(self))
+        RoleState::Follower(Follower::new(self, pending_vote))
     }
 
     /// 次のメッセージ送信に使用されるシーケンス番号を返す.
@@ -309,8 +313,7 @@ where
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
                     // 送信者(候補者)のログは十分に新しいので、その人を支持する
                     let candidate = m.header.sender.clone();
-                    self.unread_message = Some(Message::RequestVoteCall(m));
-                    self.transit_to_follower(candidate)
+                    self.transit_to_follower(candidate, Some(m.header))
                 } else {
                     // ローカルログの方が新しいので、自分で立候補する
                     self.transit_to_candidate()
@@ -319,12 +322,12 @@ where
                 // 新リーダが当選していたので、その人のフォロワーとなる
                 let leader = message.header().sender.clone();
                 self.unread_message = Some(message);
-                self.transit_to_follower(leader)
+                self.transit_to_follower(leader, None)
             } else if self.local_node.role == Role::Leader {
                 self.transit_to_candidate()
             } else {
                 let local = self.local_node.id.clone();
-                self.transit_to_follower(local)
+                self.transit_to_follower(local, None)
             };
             HandleMessageResult::Handled(Some(next_state))
         } else if message.header().term < self.local_node.ballot.term {
@@ -345,7 +348,7 @@ where
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
-                    let next = self.transit_to_follower(leader);
+                    let next = self.transit_to_follower(leader, None);
                     HandleMessageResult::Handled(Some(next))
                 }
                 _ => HandleMessageResult::Unhandled(message), // 個別のロールに処理を任せる
