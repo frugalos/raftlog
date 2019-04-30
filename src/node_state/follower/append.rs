@@ -51,8 +51,14 @@ impl<IO: Io> FollowerAppend<IO> {
         common: &mut Common<IO>,
         message: Message,
     ) -> Result<NextState<IO>> {
-        if let Message::AppendEntriesCall(m) = message {
-            common.rpc_callee(&m.header).reply_busy();
+        match message {
+            Message::RequestVoteCall(m) => {
+                common.rpc_callee(&m.header).reply_request_vote(true);
+            }
+            Message::AppendEntriesCall(m) => {
+                common.rpc_callee(&m.header).reply_busy();
+            }
+            _ => {}
         }
         Ok(None)
     }

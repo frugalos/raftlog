@@ -178,9 +178,9 @@ where
     }
 
     /// `Follower`状態に遷移する.
-    pub fn transit_to_follower(&mut self, followee: NodeId) -> RoleState<IO> {
+    pub fn transit_to_follower(&mut self, followee: NodeId, term: Term) -> RoleState<IO> {
         let new_ballot = Ballot {
-            term: self.local_node.ballot.term,
+            term,
             voted_for: followee,
         };
         self.set_ballot(new_ballot);
@@ -290,13 +290,13 @@ where
                 return HandleMessageResult::Handled(None);
             }
 
-            self.local_node.ballot.term = message.header().term;
+            let new_term = message.header().term;
             let next_state = if let Message::RequestVoteCall(m) = message {
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
                     // 送信者(候補者)のログは十分に新しいので、その人を支持する
                     let candidate = m.header.sender.clone();
                     self.unread_message = Some(Message::RequestVoteCall(m));
-                    self.transit_to_follower(candidate)
+                    self.transit_to_follower(candidate, new_term)
                 } else {
                     // ローカルログの方が新しいので、自分で立候補する
                     self.transit_to_candidate()
@@ -305,12 +305,12 @@ where
                 // 新リーダが当選していたので、その人のフォロワーとなる
                 let leader = message.header().sender.clone();
                 self.unread_message = Some(message);
-                self.transit_to_follower(leader)
+                self.transit_to_follower(leader, new_term)
             } else if self.local_node.role == Role::Leader {
                 self.transit_to_candidate()
             } else {
                 let local = self.local_node.id.clone();
-                self.transit_to_follower(local)
+                self.transit_to_follower(local, new_term)
             };
             HandleMessageResult::Handled(Some(next_state))
         } else if message.header().term < self.local_node.ballot.term {
@@ -331,7 +331,8 @@ where
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
-                    let next = self.transit_to_follower(leader);
+                    let term = self.local_node.ballot.term;
+                    let next = self.transit_to_follower(leader, term);
                     HandleMessageResult::Handled(Some(next))
                 }
                 _ => HandleMessageResult::Unhandled(message), // 個別のロールに処理を任せる
@@ -405,12 +406,14 @@ where
             }
 
             if self.local_node.id == *successor {
-                // save_ballot処理などを共通化したいので、一度candidateを経由する。
-                // 既に、過半数以上のノードが`LogEntry::Retire`をcommitしているはずなので、
-                // この立候補は即座に成功するはず.
+                // 即座にleaderに遷移してしまうと、同じtermに複数リーダが存在してしまう危険性があるため、
+                // 一度candidateを経由して、正規の手順でleaderに選出されるようにする。
                 Some(self.transit_to_candidate())
             } else {
-                None
+                // https://github.com/frugalos/raftlog/pull/27#issuecomment-485392303 の問題を回避するために、
+                // `RequestVoteCall`メッセージを待たずにfollowerに遷移してしまう。
+                let new_term = (term.as_u64() + 1).into();
+                Some(self.transit_to_follower(successor.clone(), new_term))
             }
         } else {
             None

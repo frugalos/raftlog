@@ -27,6 +27,10 @@ impl<IO: Io> FollowerIdle<IO> {
         message: Message,
     ) -> Result<NextState<IO>> {
         match message {
+            Message::RequestVoteCall(m) => {
+                common.rpc_callee(&m.header).reply_request_vote(true);
+                Ok(None)
+            }
             Message::AppendEntriesCall(m) => track!(self.handle_entries(common, m)),
             Message::InstallSnapshotCast(m) => {
                 if m.prefix.tail.index <= common.log_committed_tail().index {
