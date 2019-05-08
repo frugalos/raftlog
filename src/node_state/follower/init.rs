@@ -16,11 +16,11 @@ pub struct FollowerInit<IO: Io> {
     pending_vote: Option<MessageHeader>,
 }
 impl<IO: Io> FollowerInit<IO> {
-    pub fn new(common: &mut Common<IO>) -> Self {
+    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
         let future = common.save_ballot();
         FollowerInit {
             future,
-            pending_vote: None,
+            pending_vote,
         }
     }
     pub fn handle_message(
@@ -30,6 +30,7 @@ impl<IO: Io> FollowerInit<IO> {
     ) -> Result<NextState<IO>> {
         match message {
             Message::RequestVoteCall(m) => {
+                // pending_vote can be overwritten here because the latest vote should be used.
                 self.pending_vote = Some(m.header);
             }
             Message::AppendEntriesCall(m) => {
