@@ -4,7 +4,7 @@ use self::init::FollowerInit;
 use self::snapshot::FollowerSnapshot;
 use super::{Common, NextState};
 use election::Role;
-use message::Message;
+use message::{Message, MessageHeader};
 use {Io, Result};
 
 mod append;
@@ -32,9 +32,9 @@ pub enum Follower<IO: Io> {
     Snapshot(FollowerSnapshot<IO>),
 }
 impl<IO: Io> Follower<IO> {
-    pub fn new(common: &mut Common<IO>) -> Self {
+    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
         common.set_timeout(Role::Follower);
-        let follower = FollowerInit::new(common);
+        let follower = FollowerInit::new(common, pending_vote);
         Follower::Init(follower)
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {

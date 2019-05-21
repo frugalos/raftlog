@@ -10,6 +10,7 @@ use cluster::ClusterConfig;
 use election::{Ballot, Role, Term};
 use log::{Log, LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use message::{Message, MessageHeader, SequenceNumber};
+use metrics::NodeStateMetrics;
 use node::{Node, NodeId};
 use {Error, ErrorKind, Event, Io, Result};
 
@@ -26,13 +27,19 @@ pub struct Common<IO: Io> {
     seq_no: SequenceNumber,
     load_committed: Option<IO::LoadLog>,
     install_snapshot: Option<InstallSnapshot<IO>>,
+    metrics: NodeStateMetrics,
 }
 impl<IO> Common<IO>
 where
     IO: Io,
 {
     /// 新しい`Common`インスタンスを生成する.
-    pub fn new(node_id: NodeId, mut io: IO, config: ClusterConfig) -> Self {
+    pub fn new(
+        node_id: NodeId,
+        mut io: IO,
+        config: ClusterConfig,
+        metrics: NodeStateMetrics,
+    ) -> Self {
         // 最初は（仮に）フォロワーだとしておく
         let timeout = io.create_timeout(Role::Follower);
         Common {
@@ -45,6 +52,7 @@ where
             events: VecDeque::new(),
             load_committed: None,
             install_snapshot: None,
+            metrics,
         }
     }
 
@@ -122,6 +130,7 @@ where
             new_head: prefix.tail,
             snapshot: prefix.snapshot,
         };
+        self.metrics.event_queue_len.increment();
         self.events.push_back(event);
         Ok(())
     }
@@ -130,6 +139,7 @@ where
     pub fn set_ballot(&mut self, new_ballot: Ballot) {
         if self.local_node.ballot != new_ballot {
             self.local_node.ballot = new_ballot.clone();
+            self.metrics.event_queue_len.increment();
             self.events.push_back(Event::TermChanged { new_ballot });
         }
     }
@@ -162,12 +172,14 @@ where
 
     /// `Leader`状態に遷移する.
     pub fn transit_to_leader(&mut self) -> RoleState<IO> {
+        self.metrics.transit_to_leader_total.increment();
         self.set_role(Role::Leader);
         RoleState::Leader(Leader::new(self))
     }
 
     /// `Candidate`状態に遷移する.
     pub fn transit_to_candidate(&mut self) -> RoleState<IO> {
+        self.metrics.transit_to_candidate_total.increment();
         let new_ballot = Ballot {
             term: (self.local_node.ballot.term.as_u64() + 1).into(),
             voted_for: self.local_node.id.clone(),
@@ -178,14 +190,20 @@ where
     }
 
     /// `Follower`状態に遷移する.
-    pub fn transit_to_follower(&mut self, followee: NodeId, term: Term) -> RoleState<IO> {
+    pub fn transit_to_follower(
+        &mut self,
+        followee: NodeId,
+        term: Term,
+        pending_vote: Option<MessageHeader>,
+    ) -> RoleState<IO> {
+        self.metrics.transit_to_follower_total.increment();
         let new_ballot = Ballot {
             term,
             voted_for: followee,
         };
         self.set_ballot(new_ballot);
         self.set_role(Role::Follower);
-        RoleState::Follower(Follower::new(self))
+        RoleState::Follower(Follower::new(self, pending_vote))
     }
 
     /// 次のメッセージ送信に使用されるシーケンス番号を返す.
@@ -241,6 +259,7 @@ where
 
     /// ユーザに通知するイベントがある場合には、それを返す.
     pub fn next_event(&mut self) -> Option<Event> {
+        self.metrics.event_queue_len.decrement();
         self.events.pop_front()
     }
 
@@ -295,8 +314,7 @@ where
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
                     // 送信者(候補者)のログは十分に新しいので、その人を支持する
                     let candidate = m.header.sender.clone();
-                    self.unread_message = Some(Message::RequestVoteCall(m));
-                    self.transit_to_follower(candidate, new_term)
+                    self.transit_to_follower(candidate, new_term, Some(m.header))
                 } else {
                     // ローカルログの方が新しいので、自分で立候補する
                     self.transit_to_candidate()
@@ -305,12 +323,12 @@ where
                 // 新リーダが当選していたので、その人のフォロワーとなる
                 let leader = message.header().sender.clone();
                 self.unread_message = Some(message);
-                self.transit_to_follower(leader, new_term)
+                self.transit_to_follower(leader, new_term, None)
             } else if self.local_node.role == Role::Leader {
                 self.transit_to_candidate()
             } else {
                 let local = self.local_node.id.clone();
-                self.transit_to_follower(local, new_term)
+                self.transit_to_follower(local, new_term, None)
             };
             HandleMessageResult::Handled(Some(next_state))
         } else if message.header().term < self.local_node.ballot.term {
@@ -332,7 +350,7 @@ where
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
                     let term = self.local_node.ballot.term;
-                    let next = self.transit_to_follower(leader, term);
+                    let next = self.transit_to_follower(leader, term, None);
                     HandleMessageResult::Handled(Some(next))
                 }
                 _ => HandleMessageResult::Unhandled(message), // 個別のロールに処理を任せる
@@ -413,7 +431,7 @@ where
                 // https://github.com/frugalos/raftlog/pull/27#issuecomment-485392303 の問題を回避するために、
                 // `RequestVoteCall`メッセージを待たずにfollowerに遷移してしまう。
                 let new_term = (term.as_u64() + 1).into();
-                Some(self.transit_to_follower(successor.clone(), new_term))
+                Some(self.transit_to_follower(successor.clone(), new_term, None))
             }
         } else {
             None
@@ -487,21 +505,24 @@ impl<IO: Io> Future for InstallSnapshot<IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prometrics::metrics::MetricBuilder;
     use trackable::result::TestResult;
 
     use log::{LogEntry, LogPrefix};
+    use metrics::NodeStateMetrics;
     use test_util::tests::TestIoBuilder;
 
     #[test]
     fn is_snapshot_installing_works() -> TestResult {
         let node_id: NodeId = "node1".into();
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
             .add_member(node_id.clone())
             .add_member("node2".into())
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
         let prefix = LogPrefix {
             tail: LogPosition::default(),
             config: cluster.clone(),
@@ -518,13 +539,14 @@ mod tests {
     #[test]
     fn is_focusing_on_installing_snapshot_works() -> TestResult {
         let node_id: NodeId = "node1".into();
+        let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
             .add_member(node_id.clone())
             .add_member("node2".into())
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone());
+        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
         let prev_term = Term::new(0);
         let node_prefix = LogPrefix {
             tail: LogPosition {
