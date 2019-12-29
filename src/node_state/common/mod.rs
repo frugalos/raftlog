@@ -484,10 +484,10 @@ mod tests {
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
+        let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let prefix = LogPrefix {
             tail: LogPosition::default(),
-            config: cluster.clone(),
+            config: cluster,
             snapshot: Vec::default(),
         };
 
@@ -508,11 +508,11 @@ mod tests {
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
+        let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let prev_term = Term::new(0);
         let node_prefix = LogPrefix {
             tail: LogPosition {
-                prev_term: prev_term.clone(),
+                prev_term,
                 index: LogIndex::new(3),
             },
             config: cluster.clone(),
@@ -520,20 +520,20 @@ mod tests {
         };
         let log_suffix = LogSuffix {
             head: LogPosition {
-                prev_term: prev_term.clone(),
+                prev_term,
                 index: LogIndex::new(3),
             },
             entries: vec![
                 LogEntry::Command {
-                    term: prev_term.clone(),
+                    term: prev_term,
                     command: Vec::default(),
                 },
                 LogEntry::Command {
-                    term: prev_term.clone(),
+                    term: prev_term,
                     command: Vec::default(),
                 },
                 LogEntry::Command {
-                    term: prev_term.clone(),
+                    term: prev_term,
                     command: Vec::default(),
                 },
             ],
@@ -541,16 +541,16 @@ mod tests {
         // The prefix of a leader is a bit ahead.
         let leader_prefix = LogPrefix {
             tail: LogPosition {
-                prev_term: prev_term.clone(),
+                prev_term,
                 index: LogIndex::new(5),
             },
-            config: cluster.clone(),
+            config: cluster,
             snapshot: vec![1],
         };
 
         assert!(!common.is_focusing_on_installing_snapshot());
         // Applies a prefix before tests.
-        common.handle_log_snapshot_loaded(node_prefix.clone())?;
+        common.handle_log_snapshot_loaded(node_prefix)?;
         common.install_snapshot(leader_prefix)?;
         // The node is installing a snapshot and focusing on the installation.
         assert!(common.is_focusing_on_installing_snapshot());
@@ -560,7 +560,7 @@ mod tests {
         assert_eq!(
             common.log().tail(),
             LogPosition {
-                prev_term: prev_term.clone(),
+                prev_term,
                 index: LogIndex::new(6)
             }
         );

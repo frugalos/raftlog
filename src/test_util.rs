@@ -16,6 +16,8 @@ pub mod tests {
     use node::NodeId;
     use {Error, ErrorKind, Result};
 
+    type Logs = Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>;
+
     /// `TestIo`を生成する。主にクラスタ構成をするために存在する。
     /// `Log` や `Ballot` の設定は直接 `TestIo` に対して行えばよい。
     #[derive(Debug)]
@@ -51,7 +53,7 @@ pub mod tests {
     #[derive(Clone)]
     pub struct TestIoHandle {
         pub cluster: ClusterConfig,
-        logs: Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>,
+        logs: Logs,
     }
 
     impl TestIoHandle {
@@ -89,7 +91,7 @@ pub mod tests {
         /// `LoadBallot` でロードされる。
         pub ballots: Arc<Mutex<Vec<Ballot>>>,
         /// `LoadLog` でロードされる。
-        pub logs: Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>,
+        pub logs: Logs,
     }
 
     impl TestIo {

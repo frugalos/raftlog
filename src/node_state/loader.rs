@@ -118,7 +118,7 @@ mod tests {
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
+        let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let mut loader = Loader::new(&mut common);
 
         // prefix には空の snapshot があり、tail は 1 を指している。
@@ -127,22 +127,22 @@ mod tests {
         let term = Term::new(1);
         let suffix_head = LogIndex::new(1);
         let prefix_tail = LogPosition {
-            prev_term: term.clone(),
-            index: suffix_head.clone(),
+            prev_term: term,
+            index: suffix_head,
         };
         handle.set_initial_log_prefix(LogPrefix {
-            tail: prefix_tail.clone(),
-            config: cluster.clone(),
+            tail: prefix_tail,
+            config: cluster,
             snapshot: vec![],
         });
         handle.set_initial_log_suffix(
-            suffix_head.clone(),
+            suffix_head,
             LogSuffix {
                 head: LogPosition {
-                    prev_term: term.clone(),
-                    index: suffix_head.clone(),
+                    prev_term: term,
+                    index: suffix_head,
                 },
-                entries: vec![LogEntry::Noop { term: term.clone() }],
+                entries: vec![LogEntry::Noop { term }],
             },
         );
         loop {
@@ -169,30 +169,30 @@ mod tests {
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
-        let mut common = Common::new(node_id.clone(), io, cluster.clone(), metrics);
+        let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let mut loader = Loader::new(&mut common);
 
         // 古い term のログが紛れ込んでいるとエラーになる
         let term = Term::new(308);
-        let suffix_head = LogIndex::new(28405496);
+        let suffix_head = LogIndex::new(28_405_496);
         let prefix_tail = LogPosition {
-            prev_term: term.clone(),
-            index: suffix_head.clone(),
+            prev_term: term,
+            index: suffix_head,
         };
         handle.set_initial_log_prefix(LogPrefix {
-            tail: prefix_tail.clone(),
-            config: cluster.clone(),
+            tail: prefix_tail,
+            config: cluster,
             snapshot: vec![],
         });
         handle.set_initial_log_suffix(
             suffix_head.clone(),
             LogSuffix {
                 head: LogPosition {
-                    prev_term: term.clone(),
-                    index: suffix_head.clone(),
+                    prev_term: term,
+                    index: suffix_head,
                 },
                 entries: vec![
-                    LogEntry::Noop { term: term.clone() },
+                    LogEntry::Noop { term },
                     LogEntry::Noop {
                         term: Term::new(term.as_u64() - 1),
                     },
