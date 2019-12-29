@@ -37,10 +37,7 @@ impl<IO: Io> Leader<IO> {
 
         // 新しいリーダ選出直後に追加されるログエントリ.
         // 詳細は、論文の「8 Client interaction」参照.
-        let noop = LogEntry::Noop {
-            term: common.term(),
-        };
-        appender.append(common, vec![noop]);
+        append_noop(common, &mut appender);
 
         Leader {
             followers,
@@ -100,7 +97,12 @@ impl<IO: Io> Leader<IO> {
             self.broadcast_slice(common, appended);
         }
         track!(self.handle_change_config(common))?;
-        track!(self.followers.run_once(common))?;
+        if track!(self.followers.run_once(common))?.0 {
+            // リーダーのスナップショット取得後に起動してきたフォロワーが Noop を受け取れない場合に、
+            // Noop を再送することでリーダーを通知するための対応.
+            // https://github.com/frugalos/frugalos/issues/277
+            append_noop(common, &mut self.appender);
+        }
         Ok(None)
     }
     pub fn propose(&mut self, common: &mut Common<IO>, entry: LogEntry) -> ProposalId {
@@ -190,4 +192,11 @@ impl<IO: Io> Leader<IO> {
         track!(common.handle_log_committed(committed))?;
         Ok(())
     }
+}
+
+fn append_noop<IO: Io>(common: &mut Common<IO>, appender: &mut LogAppender<IO>) {
+    let noop = LogEntry::Noop {
+        term: common.term(),
+    };
+    appender.append(common, vec![noop]);
 }

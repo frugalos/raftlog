@@ -39,7 +39,7 @@ impl<IO: Io> FollowersManager<IO> {
             last_broadcast_seq_no: SequenceNumber::new(0),
         }
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<()> {
+    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<SnapshotSent> {
         // バックグランドタスク(ログ同期用の読み込み処理)を実行する.
         let mut dones = Vec::new();
         for (follower, task) in &mut self.tasks {
@@ -47,15 +47,19 @@ impl<IO: Io> FollowersManager<IO> {
                 dones.push((follower.clone(), log));
             }
         }
+        let mut is_snapshot_sent = false;
         for (follower, log) in dones {
             let rpc = common.rpc_caller();
             match log {
-                Log::Prefix(snapshot) => rpc.send_install_snapshot(&follower, snapshot),
+                Log::Prefix(snapshot) => {
+                    rpc.send_install_snapshot(&follower, snapshot);
+                    is_snapshot_sent = true;
+                }
                 Log::Suffix(slice) => rpc.send_append_entries(&follower, slice),
             }
             self.tasks.remove(&follower);
         }
-        Ok(())
+        Ok(SnapshotSent(is_snapshot_sent))
     }
     pub fn latest_hearbeat_ack(&self) -> SequenceNumber {
         self.latest_hearbeat_ack
@@ -221,3 +225,8 @@ impl Follower {
         }
     }
 }
+
+/// スナップショットが送信されたことを意味する.
+// API というわけではないが実装の都合上可視性が pub になっている
+#[derive(Debug)]
+pub struct SnapshotSent(pub bool);
