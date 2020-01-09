@@ -174,6 +174,7 @@ where
     pub fn transit_to_leader(&mut self) -> RoleState<IO> {
         self.metrics.transit_to_leader_total.increment();
         self.set_role(Role::Leader);
+        self.notify_new_leader_elected();
         RoleState::Leader(Leader::new(self))
     }
 
@@ -202,7 +203,13 @@ where
         };
         self.set_ballot(new_ballot);
         self.set_role(Role::Follower);
+        self.notify_new_leader_elected();
         RoleState::Follower(Follower::new(self, pending_vote))
+    }
+
+    /// 新しいリーダーが選出されたことを通知する.
+    pub fn notify_new_leader_elected(&mut self) {
+        self.events.push_back(Event::NewLeaderElected);
     }
 
     /// 次のメッセージ送信に使用されるシーケンス番号を返す.
