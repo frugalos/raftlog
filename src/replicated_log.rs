@@ -293,6 +293,9 @@ pub enum Event {
     /// 新しい選挙期間に移った.
     TermChanged { new_ballot: Ballot },
 
+    /// 新しいリーダーが選出された.
+    NewLeaderElected,
+
     /// 新しいログエントリがコミットされた.
     ///
     /// エントリの内容がコマンドの場合には、
