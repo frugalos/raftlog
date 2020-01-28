@@ -8,7 +8,7 @@ use super::leader::Leader;
 use super::{NextState, RoleState};
 use cluster::ClusterConfig;
 use election::{Ballot, Role, Term};
-use log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
+use log::{Log, LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use message::{Message, MessageHeader, SequenceNumber};
 use metrics::NodeStateMetrics;
 use node::{Node, NodeId};
@@ -194,11 +194,12 @@ where
     pub fn transit_to_follower(
         &mut self,
         followee: NodeId,
+        term: Term,
         pending_vote: Option<MessageHeader>,
     ) -> RoleState<IO> {
         self.metrics.transit_to_follower_total.increment();
         let new_ballot = Ballot {
-            term: self.local_node.ballot.term,
+            term,
             voted_for: followee,
         };
         self.set_ballot(new_ballot);
@@ -315,12 +316,12 @@ where
                 return HandleMessageResult::Handled(None);
             }
 
-            self.local_node.ballot.term = message.header().term;
+            let new_term = message.header().term;
             let next_state = if let Message::RequestVoteCall(m) = message {
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
                     // 送信者(候補者)のログは十分に新しいので、その人を支持する
                     let candidate = m.header.sender.clone();
-                    self.transit_to_follower(candidate, Some(m.header))
+                    self.transit_to_follower(candidate, new_term, Some(m.header))
                 } else {
                     // ローカルログの方が新しいので、自分で立候補する
                     self.transit_to_candidate()
@@ -329,12 +330,12 @@ where
                 // 新リーダが当選していたので、その人のフォロワーとなる
                 let leader = message.header().sender.clone();
                 self.unread_message = Some(message);
-                self.transit_to_follower(leader, None)
+                self.transit_to_follower(leader, new_term, None)
             } else if self.local_node.role == Role::Leader {
                 self.transit_to_candidate()
             } else {
                 let local = self.local_node.id.clone();
-                self.transit_to_follower(local, None)
+                self.transit_to_follower(local, new_term, None)
             };
             HandleMessageResult::Handled(Some(next_state))
         } else if message.header().term < self.local_node.ballot.term {
@@ -355,7 +356,8 @@ where
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
-                    let next = self.transit_to_follower(leader, None);
+                    let term = self.local_node.ballot.term;
+                    let next = self.transit_to_follower(leader, term, None);
                     HandleMessageResult::Handled(Some(next))
                 }
                 _ => HandleMessageResult::Unhandled(message), // 個別のロールに処理を任せる
@@ -365,6 +367,7 @@ where
 
     /// バックグランド処理を一単位実行する.
     pub fn run_once(&mut self) -> Result<NextState<IO>> {
+        let mut next_state = None;
         loop {
             // スナップショットのインストール処理
             if let Async::Ready(Some(summary)) = track!(self.install_snapshot.poll())? {
@@ -383,7 +386,9 @@ where
                 self.load_committed = None;
                 match log {
                     Log::Prefix(snapshot) => track!(self.handle_log_snapshot_loaded(snapshot))?,
-                    Log::Suffix(slice) => track!(self.handle_committed(slice))?,
+                    Log::Suffix(slice) => {
+                        next_state = track!(self.handle_committed(slice))?;
+                    }
                 }
             }
 
@@ -398,7 +403,7 @@ where
             let end = self.history.committed_tail().index;
             self.load_committed = Some(self.load_log(start, Some(end)));
         }
-        Ok(None)
+        Ok(next_state)
     }
 
     /// RPCの要求用のインスタンスを返す.
@@ -411,12 +416,45 @@ where
         RpcCallee::new(self, caller)
     }
 
-    fn handle_committed(&mut self, suffix: LogSuffix) -> Result<()> {
+    fn handle_retirement(&mut self, entry: &LogEntry) -> NextState<IO> {
+        if let LogEntry::Retire { term, successor } = &entry {
+            if self.term() != *term {
+                return None;
+            }
+
+            if self.local_node.role == Role::Leader {
+                // Notifies this commit to cluster members immediately.
+                let head = self.log().tail();
+                let entries = Vec::new();
+                let slice = LogSuffix { head, entries };
+                self.rpc_caller().broadcast_append_entries(slice);
+            }
+
+            if self.local_node.id == *successor {
+                // 即座にleaderに遷移してしまうと、同じtermに複数リーダが存在してしまう危険性があるため、
+                // 一度candidateを経由して、正規の手順でleaderに選出されるようにする。
+                Some(self.transit_to_candidate())
+            } else {
+                // https://github.com/frugalos/raftlog/pull/27#issuecomment-485392303 の問題を回避するために、
+                // `RequestVoteCall`メッセージを待たずにfollowerに遷移してしまう。
+                let new_term = (term.as_u64() + 1).into();
+                Some(self.transit_to_follower(successor.clone(), new_term, None))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn handle_committed(&mut self, suffix: LogSuffix) -> Result<NextState<IO>> {
+        let mut next_state = None;
+
         let new_tail = suffix.tail();
         for (index, entry) in (suffix.head.index.as_u64()..)
             .map(LogIndex::new)
             .zip(suffix.entries.into_iter())
         {
+            next_state = self.handle_retirement(&entry);
+
             let event = Event::Committed { index, entry };
             self.events.push_back(event);
         }
@@ -425,7 +463,7 @@ where
             // そのスナップショットのロードが行われるまでの間には、上の条件が`false`になる可能性がある.
             track!(self.history.record_consumed(new_tail.index))?;
         }
-        Ok(())
+        Ok(next_state)
     }
     fn set_role(&mut self, new_role: Role) {
         if self.local_node.role != new_role {

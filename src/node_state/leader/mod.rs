@@ -4,6 +4,7 @@ use super::{Common, NextState};
 use election::Role;
 use log::{LogEntry, LogIndex, LogSuffix, ProposalId};
 use message::{Message, SequenceNumber};
+use node::NodeId;
 use {ErrorKind, Io, Result};
 
 mod appender;
@@ -27,6 +28,7 @@ pub struct Leader<IO: Io> {
     followers: FollowersManager<IO>,
     appender: LogAppender<IO>,
     commit_lower_bound: LogIndex,
+    retiring: Option<LogIndex>,
 }
 impl<IO: Io> Leader<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
@@ -46,6 +48,7 @@ impl<IO: Io> Leader<IO> {
             followers,
             appender,
             commit_lower_bound: term_start_index,
+            retiring: None,
         }
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -104,9 +107,16 @@ impl<IO: Io> Leader<IO> {
         Ok(None)
     }
     pub fn propose(&mut self, common: &mut Common<IO>, entry: LogEntry) -> ProposalId {
-        let proposal_id = self.next_proposal_id(common);
-        self.appender.append(common, vec![entry]);
-        proposal_id
+        if let Some(index) = self.retiring {
+            self.retiring = Some(index + 1);
+
+            let term = common.term();
+            ProposalId { term, index }
+        } else {
+            let proposal_id = self.next_proposal_id(common);
+            self.appender.append(common, vec![entry]);
+            proposal_id
+        }
     }
     pub fn heartbeat_syn(&mut self, common: &mut Common<IO>) -> SequenceNumber {
         let seq_no = common.next_seq_no();
@@ -118,6 +128,15 @@ impl<IO: Io> Leader<IO> {
     }
     pub fn last_heartbeat_ack(&self) -> SequenceNumber {
         self.followers.latest_hearbeat_ack()
+    }
+
+    pub fn choice_successor(&self, common: &Common<IO>) -> Option<NodeId> {
+        self.followers.choice_successor(&common.local_node().id)
+    }
+
+    pub fn start_retire(&mut self, common: &Common<IO>) {
+        let index = self.appender.unappended_log_tail(common);
+        self.retiring = Some(index);
     }
 
     fn handle_change_config(&mut self, common: &mut Common<IO>) -> Result<()> {

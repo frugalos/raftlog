@@ -123,6 +123,39 @@ impl<IO: Io> ReplicatedLog<IO> {
         }
     }
 
+    /// 次のリーダを任命する.
+    pub fn propose_successor(&mut self, successor: NodeId) -> Result<ProposalId> {
+        if let RoleState::Leader(ref mut leader) = self.node.role {
+            let term = self.node.common.term();
+            let entry = LogEntry::Retire { term, successor };
+            let proposal_id = leader.propose(&mut self.node.common, entry);
+
+            leader.start_retire(&self.node.common);
+            Ok(proposal_id)
+        } else {
+            track_panic!(ErrorKind::NotLeader)
+        }
+    }
+
+    /// リーダを辞める.
+    ///
+    /// 次のリーダには、適当なノードが選択される.
+    /// 次のリーダ候補のノードが存在しない場合には`Ok(None)`が返され、
+    /// 退任は失敗する.
+    pub fn propose_retire(&mut self) -> Result<Option<ProposalId>> {
+        let successor = if let RoleState::Leader(ref mut leader) = self.node.role {
+            leader.choice_successor(&self.node.common)
+        } else {
+            track_panic!(ErrorKind::NotLeader);
+        };
+
+        if let Some(successor) = successor {
+            track!(self.propose_successor(successor).map(Some))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// 強制的にハートビートメッセージ(i.e., AppendEntriesCall)をブロードキャストする.
     ///
     /// 返り値は、送信メッセージのシーケンス番号.

@@ -164,6 +164,16 @@ impl<IO: Io> FollowersManager<IO> {
         self.config = config.clone();
     }
 
+    pub fn choice_successor(&self, local_node: &NodeId) -> Option<NodeId> {
+        // 一番ローカルログが新しそうなfollowerを次のリーダ候補として選択.
+        // TODO: `x.1.log_tail`が、自ノードのlast_commited以上であることは確認しておく必要がある.
+        self.followers
+            .iter()
+            .filter(|x| x.0 != local_node && x.1.synced)
+            .max_by_key(|x| (x.1.log_tail, x.1.last_seq_no))
+            .map(|x| x.0.clone())
+    }
+
     fn update_follower_state(&mut self, common: &Common<IO>, reply: &AppendEntriesReply) -> bool {
         let follower = &mut self
             .followers

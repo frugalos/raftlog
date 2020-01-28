@@ -5,6 +5,7 @@ pub use self::history::{HistoryRecord, LogHistory};
 
 use cluster::ClusterConfig;
 use election::Term;
+use node::NodeId;
 use {ErrorKind, Result};
 
 mod history;
@@ -208,6 +209,9 @@ pub enum LogEntry {
 
     /// 状態機械の入力となるコマンドを格納したエントリ.
     Command { term: Term, command: Vec<u8> },
+
+    /// 次のリーダ(後任)を指名してリーダを辞めるためのエントリ.
+    Retire { term: Term, successor: NodeId },
 }
 impl LogEntry {
     /// このエントリが発行された`Term`を返す.
@@ -216,6 +220,7 @@ impl LogEntry {
             LogEntry::Noop { term } => term,
             LogEntry::Config { term, .. } => term,
             LogEntry::Command { term, .. } => term,
+            LogEntry::Retire { term, .. } => term,
         }
     }
 }
