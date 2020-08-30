@@ -185,7 +185,7 @@ mod tests {
             snapshot: vec![],
         });
         handle.set_initial_log_suffix(
-            suffix_head.clone(),
+            suffix_head,
             LogSuffix {
                 head: LogPosition {
                     prev_term: term,

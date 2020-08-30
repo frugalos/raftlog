@@ -194,21 +194,13 @@ pub enum RoleState<IO: Io> {
 impl<IO: Io> RoleState<IO> {
     /// Returns true if this role state is `Loader`.
     pub fn is_loader(&self) -> bool {
-        if let RoleState::Loader(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, RoleState::Loader(_))
     }
 
     /// Returns true if this role state is `Candidate`.
     #[cfg(test)]
     pub fn is_candidate(&self) -> bool {
-        if let RoleState::Candidate(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, RoleState::Candidate(_))
     }
 }
 
