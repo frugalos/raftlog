@@ -6,12 +6,11 @@ use raftlog::log::{LogEntry, LogIndex, ProposalId};
 use raftlog::message::SequenceNumber;
 use raftlog::node::NodeId;
 use raftlog::{Event, Io, ReplicatedLog};
-use serdeconv;
 use std::collections::VecDeque;
 
-use machine::{Command, MachineState};
-use types::LogicalDuration;
-use {DeterministicIo, Error, ErrorKind, Logger, Result};
+use crate::machine::{Command, MachineState};
+use crate::types::LogicalDuration;
+use crate::{DeterministicIo, Error, ErrorKind, Logger, Result};
 
 /// プロセス.
 ///

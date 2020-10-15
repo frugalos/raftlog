@@ -21,10 +21,10 @@ macro_rules! log {
 pub use raftlog::{Error, ErrorKind, Result};
 
 #[doc(no_inline)]
-pub use io::{DeterministicIo, DeterministicIoBuilder};
-pub use logger::Logger;
-pub use simulator::Simulator;
-pub use simulator_config::SimulatorConfig;
+pub use crate::io::{DeterministicIo, DeterministicIoBuilder};
+pub use crate::logger::Logger;
+pub use crate::simulator::Simulator;
+pub use crate::simulator_config::SimulatorConfig;
 
 pub mod io;
 pub mod machine;

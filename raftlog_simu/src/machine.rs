@@ -6,9 +6,9 @@ use raftlog::Event;
 use std::collections::BTreeMap;
 use trackable::error::ErrorKindExt;
 
-use process::Process;
-use types::LogicalDuration;
-use {DeterministicIoBuilder, Error, ErrorKind, Logger, Result};
+use crate::process::Process;
+use crate::types::LogicalDuration;
+use crate::{DeterministicIoBuilder, Error, ErrorKind, Logger, Result};
 
 /// 状態機械に発行されるコマンド(加算値).
 pub type Command = u64;

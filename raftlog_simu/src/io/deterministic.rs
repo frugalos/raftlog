@@ -4,11 +4,11 @@ use raftlog::message::Message;
 use raftlog::node::NodeId;
 use raftlog::Io;
 
-use io::configs::{ChannelConfig, StorageConfig, TimerConfig};
-use io::futures;
-use io::{MessageBroker, Storage, Timer};
-use types::SharedRng;
-use Result;
+use crate::io::configs::{ChannelConfig, StorageConfig, TimerConfig};
+use crate::io::futures;
+use crate::io::{MessageBroker, Storage, Timer};
+use crate::types::SharedRng;
+use crate::Result;
 
 /// `DeterministicIo`のビルダ.
 pub struct DeterministicIoBuilder {

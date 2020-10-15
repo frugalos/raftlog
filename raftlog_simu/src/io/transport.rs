@@ -5,9 +5,9 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::rc::Rc;
 
-use io::configs::ChannelConfig;
-use types::SharedRng;
-use Result;
+use crate::io::configs::ChannelConfig;
+use crate::types::SharedRng;
+use crate::Result;
 
 /// シミュレータ用のRPCメッセージブローカー.
 ///

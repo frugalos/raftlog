@@ -1,5 +1,5 @@
 //! I/O関連の構成設定を集めたモジュール.
-use types::{LogicalDuration, Probability, Range};
+use crate::types::{LogicalDuration, Probability, Range};
 
 /// `Timer`用の構成設定.
 #[derive(Debug, Clone, Serialize, Deserialize)]
