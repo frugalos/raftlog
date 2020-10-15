@@ -4,11 +4,11 @@ use std::mem;
 use trackable::error::ErrorKindExt;
 
 use super::super::Common;
-use cluster::ClusterConfig;
-use log::{Log, LogIndex};
-use message::{AppendEntriesReply, SequenceNumber};
-use node::NodeId;
-use {ErrorKind, Io, Result};
+use crate::cluster::ClusterConfig;
+use crate::log::{Log, LogIndex};
+use crate::message::{AppendEntriesReply, SequenceNumber};
+use crate::node::NodeId;
+use crate::{ErrorKind, Io, Result};
 
 /// フォロワーの管理者.
 ///

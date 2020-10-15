@@ -2,8 +2,8 @@ use futures::Future;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle, FollowerSnapshot};
-use message::{Message, MessageHeader};
-use {Io, Result};
+use crate::message::{Message, MessageHeader};
+use crate::{Io, Result};
 
 /// 初期化処理を行うフォロワーのサブ状態.
 ///

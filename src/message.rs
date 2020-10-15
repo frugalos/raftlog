@@ -3,9 +3,9 @@
 //! なおRaftの論文に倣って"RPC"という呼称を採用しているが、
 //! 実際にここで想定されている通信モデルは、RPCではなく
 //! 非同期のメッセージ送受信モデル、となっている.
-use election::Term;
-use log::{LogIndex, LogPosition, LogPrefix, LogSuffix};
-use node::NodeId;
+use crate::election::Term;
+use crate::log::{LogIndex, LogPosition, LogPrefix, LogSuffix};
+use crate::node::NodeId;
 
 /// RPC用のメッセージ全般.
 #[derive(Debug, Clone)]

@@ -2,9 +2,9 @@ use futures::{Async, Future};
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
-use log::LogPosition;
-use message::{AppendEntriesCall, Message};
-use {Io, Result};
+use crate::log::LogPosition;
+use crate::message::{AppendEntriesCall, Message};
+use crate::{Io, Result};
 
 /// ローカルログへの追記を行うフォロワーのサブ状態.
 ///

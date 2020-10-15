@@ -1,5 +1,5 @@
 //! リーダ選出関連の構成要素群.
-use node::NodeId;
+use crate::node::NodeId;
 
 /// ある選挙ないしリーダの任期期間を識別するための番号.
 ///

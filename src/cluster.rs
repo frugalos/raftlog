@@ -5,7 +5,7 @@
 use std::cmp;
 use std::collections::BTreeSet;
 
-use node::NodeId;
+use crate::node::NodeId;
 
 /// クラスタに属するメンバ群.
 pub type ClusterMembers = BTreeSet<NodeId>;

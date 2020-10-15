@@ -3,9 +3,9 @@ use self::idle::FollowerIdle;
 use self::init::FollowerInit;
 use self::snapshot::FollowerSnapshot;
 use super::{Common, NextState};
-use election::Role;
-use message::{Message, MessageHeader};
-use {Io, Result};
+use crate::election::Role;
+use crate::message::{Message, MessageHeader};
+use crate::{Io, Result};
 
 mod append;
 mod idle;

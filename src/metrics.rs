@@ -2,7 +2,7 @@
 
 use prometrics::metrics::{Counter, Gauge, Histogram, HistogramBuilder, MetricBuilder};
 
-use {Error, Result};
+use crate::{Error, Result};
 
 /// `raftlog` 全体に関するメトリクス。
 #[derive(Clone)]

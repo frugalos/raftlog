@@ -1,5 +1,5 @@
 //! ノード関連の構成要素.
-use election::{Ballot, Role};
+use crate::election::{Ballot, Role};
 
 /// ノードのID.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

@@ -6,13 +6,13 @@ use super::candidate::Candidate;
 use super::follower::Follower;
 use super::leader::Leader;
 use super::{NextState, RoleState};
-use cluster::ClusterConfig;
-use election::{Ballot, Role, Term};
-use log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
-use message::{Message, MessageHeader, SequenceNumber};
-use metrics::NodeStateMetrics;
-use node::{Node, NodeId};
-use {Error, ErrorKind, Event, Io, Result};
+use crate::cluster::ClusterConfig;
+use crate::election::{Ballot, Role, Term};
+use crate::log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
+use crate::message::{Message, MessageHeader, SequenceNumber};
+use crate::metrics::NodeStateMetrics;
+use crate::node::{Node, NodeId};
+use crate::{Error, ErrorKind, Event, Io, Result};
 
 mod rpc_builder;
 
@@ -477,9 +477,9 @@ mod tests {
     use prometrics::metrics::MetricBuilder;
     use trackable::result::TestResult;
 
-    use log::{LogEntry, LogPrefix};
-    use metrics::NodeStateMetrics;
-    use test_util::tests::TestIoBuilder;
+    use crate::log::{LogEntry, LogPrefix};
+    use crate::metrics::NodeStateMetrics;
+    use crate::test_util::tests::TestIoBuilder;
 
     #[test]
     fn is_snapshot_installing_works() -> TestResult {

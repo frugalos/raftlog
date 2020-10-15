@@ -8,13 +8,13 @@ pub mod tests {
     use std::time::Duration;
     use trackable::error::ErrorKindExt;
 
-    use cluster::{ClusterConfig, ClusterMembers};
-    use election::{Ballot, Role};
-    use io::Io;
-    use log::{Log, LogIndex, LogPrefix, LogSuffix};
-    use message::Message;
-    use node::NodeId;
-    use {Error, ErrorKind, Result};
+    use crate::cluster::{ClusterConfig, ClusterMembers};
+    use crate::election::{Ballot, Role};
+    use crate::io::Io;
+    use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
+    use crate::message::Message;
+    use crate::node::NodeId;
+    use crate::{Error, ErrorKind, Result};
 
     type Logs = Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>;
 

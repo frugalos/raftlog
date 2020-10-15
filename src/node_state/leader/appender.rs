@@ -2,8 +2,8 @@ use futures::{Async, Future};
 use std::mem;
 
 use super::super::Common;
-use log::{LogEntry, LogIndex, LogSuffix};
-use {Io, Result};
+use crate::log::{LogEntry, LogIndex, LogSuffix};
+use crate::{Io, Result};
 
 /// リーダのローカルログへの追記の管理を行う.
 ///

@@ -3,9 +3,9 @@ use trackable::error::ErrorKindExt;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerAppend, FollowerSnapshot};
-use log::{LogPosition, LogSuffix};
-use message::{AppendEntriesCall, Message};
-use {ErrorKind, Io, Result};
+use crate::log::{LogPosition, LogSuffix};
+use crate::message::{AppendEntriesCall, Message};
+use crate::{ErrorKind, Io, Result};
 
 /// 待機中(i.e., 受信メッセージ処理が可能)なフォロワーのサブ状態.
 ///

@@ -1,4 +1,5 @@
 [package]
+edition = "2018"
 name = "raftlog"
 version = "0.6.0"
 authors = ["The FrugalOS Developers"]
