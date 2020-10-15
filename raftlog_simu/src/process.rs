@@ -188,7 +188,7 @@ impl Stream for Process {
     }
 }
 
-#[cfg_attr(feature = "cargo-clippy", allow(large_enum_variant))]
+#[allow(clippy::large_enum_variant)]
 enum ProcessState {
     Alive(Alive),
     Down(Down),
@@ -270,7 +270,8 @@ impl Alive {
     ) -> Self {
         let metric_builder = MetricBuilder::new();
         let machine = MachineState::new();
-        let rlog = ReplicatedLog::new(node_id, old_members, io, &metric_builder).expect("Never fails");
+        let rlog =
+            ReplicatedLog::new(node_id, old_members, io, &metric_builder).expect("Never fails");
         Alive {
             logger,
             machine,
