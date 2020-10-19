@@ -1,9 +1,9 @@
 use futures::{Async, Future, Poll};
 
 use super::{Common, NextState};
-use election::Role;
-use log::{Log, LogIndex};
-use {Error, Io, Result};
+use crate::election::Role;
+use crate::log::{Log, LogIndex};
+use crate::{Error, Io, Result};
 
 /// ノード起動時に、前回の状況を復元(ロード)を行う.
 pub struct Loader<IO: Io> {
@@ -104,11 +104,11 @@ mod tests {
     use super::*;
     use prometrics::metrics::MetricBuilder;
 
-    use election::Term;
-    use log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
-    use metrics::NodeStateMetrics;
-    use node::NodeId;
-    use test_util::tests::TestIoBuilder;
+    use crate::election::Term;
+    use crate::log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
+    use crate::metrics::NodeStateMetrics;
+    use crate::node::NodeId;
+    use crate::test_util::tests::TestIoBuilder;
     use trackable::result::TestResult;
 
     #[test]

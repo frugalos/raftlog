@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
-use message::Message;
-use {Io, Result};
+use crate::message::Message;
+use crate::{Io, Result};
 
 /// ローカルログへのスナップショット保存を処理するためのフォロワーのサブ状態.
 ///

@@ -2,10 +2,10 @@ use futures::{Async, Future};
 use std::collections::HashSet;
 
 use super::{Common, NextState};
-use election::Role;
-use message::{Message, RequestVoteReply};
-use node::NodeId;
-use {Io, Result};
+use crate::election::Role;
+use crate::message::{Message, RequestVoteReply};
+use crate::node::NodeId;
+use crate::{Io, Result};
 
 /// 選挙の立候補者.
 ///

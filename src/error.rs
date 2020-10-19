@@ -1,5 +1,3 @@
-use prometrics;
-use std;
 use trackable::error::TrackableError;
 use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
 

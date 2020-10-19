@@ -8,11 +8,11 @@ use self::common::HandleMessageResult;
 use self::follower::Follower;
 use self::leader::Leader;
 use self::loader::Loader;
-use cluster::ClusterConfig;
-use message::Message;
-use metrics::NodeStateMetrics;
-use node::NodeId;
-use {Error, Event, Io, Result};
+use crate::cluster::ClusterConfig;
+use crate::message::Message;
+use crate::metrics::NodeStateMetrics;
+use crate::node::NodeId;
+use crate::{Error, Event, Io, Result};
 
 mod candidate;
 mod common;
@@ -209,7 +209,7 @@ mod tests {
     use super::*;
     use prometrics::metrics::MetricBuilder;
 
-    use test_util::tests::TestIoBuilder;
+    use crate::test_util::tests::TestIoBuilder;
 
     #[test]
     fn node_state_is_loading_works() {

@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use trackable::error::ErrorKindExt;
 
-use cluster::ClusterConfig;
-use log::{LogEntry, LogIndex, LogPosition, LogPrefix, LogSuffix};
-use {ErrorKind, Result};
+use crate::cluster::ClusterConfig;
+use crate::log::{LogEntry, LogIndex, LogPosition, LogPrefix, LogSuffix};
+use crate::{ErrorKind, Result};
 
 /// ローカルログの歴史(要約)を保持するためのデータ構造.
 ///

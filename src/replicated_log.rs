@@ -3,15 +3,15 @@ use prometrics::metrics::MetricBuilder;
 use std::sync::Arc;
 use trackable::error::ErrorKindExt;
 
-use cluster::{ClusterConfig, ClusterMembers};
-use election::{Ballot, Role};
-use io::Io;
-use log::{LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, ProposalId};
-use message::SequenceNumber;
-use metrics::RaftlogMetrics;
-use node::{Node, NodeId};
-use node_state::{NodeState, RoleState};
-use {Error, ErrorKind, Result};
+use crate::cluster::{ClusterConfig, ClusterMembers};
+use crate::election::{Ballot, Role};
+use crate::io::Io;
+use crate::log::{LogEntry, LogHistory, LogIndex, LogPosition, LogPrefix, ProposalId};
+use crate::message::SequenceNumber;
+use crate::metrics::RaftlogMetrics;
+use crate::node::{Node, NodeId};
+use crate::node_state::{NodeState, RoleState};
+use crate::{Error, ErrorKind, Result};
 
 /// Raftアルゴリズムに基づく分散複製ログ.
 ///

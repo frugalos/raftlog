@@ -1,9 +1,9 @@
 use futures::Future;
 
-use election::{Ballot, Role};
-use log::{Log, LogIndex, LogPrefix, LogSuffix};
-use message::Message;
-use {Error, Result};
+use crate::election::{Ballot, Role};
+use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
+use crate::message::Message;
+use crate::{Error, Result};
 
 /// Raftの実行に必要なI/O機能を提供するためのトレイト.
 ///

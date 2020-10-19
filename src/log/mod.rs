@@ -3,9 +3,9 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 pub use self::history::{HistoryRecord, LogHistory};
 
-use cluster::ClusterConfig;
-use election::Term;
-use {ErrorKind, Result};
+use crate::cluster::ClusterConfig;
+use crate::election::Term;
+use crate::{ErrorKind, Result};
 
 mod history;
 

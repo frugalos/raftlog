@@ -1,10 +1,10 @@
 use self::appender::LogAppender;
 use self::follower::FollowersManager;
 use super::{Common, NextState};
-use election::Role;
-use log::{LogEntry, LogIndex, LogSuffix, ProposalId};
-use message::{Message, SequenceNumber};
-use {ErrorKind, Io, Result};
+use crate::election::Role;
+use crate::log::{LogEntry, LogIndex, LogSuffix, ProposalId};
+use crate::message::{Message, SequenceNumber};
+use crate::{ErrorKind, Io, Result};
 
 mod appender;
 mod follower;
