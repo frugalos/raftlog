@@ -3,8 +3,8 @@ use futures::{Async, Future, Poll};
 use raftlog::election::Ballot;
 use raftlog::log::Log;
 
-use types::LogicalDuration;
-use Error;
+use crate::types::LogicalDuration;
+use crate::Error;
 
 pub type Timeout = DelayedResult<(), Error>;
 pub type SaveBallot = DelayedResult<(), Error>;

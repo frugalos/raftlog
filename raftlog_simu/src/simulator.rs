@@ -4,9 +4,9 @@ use raftlog::node::NodeId;
 use raftlog::Event;
 use rand::Rng;
 
-use machine::{MachineState, ReplicatedStateMachine};
-use types::SharedRng;
-use {DeterministicIoBuilder, ErrorKind, Logger, Result, SimulatorConfig};
+use crate::machine::{MachineState, ReplicatedStateMachine};
+use crate::types::SharedRng;
+use crate::{DeterministicIoBuilder, ErrorKind, Logger, Result, SimulatorConfig};
 
 /// シミュレータ.
 pub struct Simulator {

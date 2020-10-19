@@ -1,9 +1,9 @@
 use raftlog::election::Role;
 use rand::Rng;
 
-use io::configs::TimerConfig;
-use io::futures::{DelayedResult, Timeout};
-use types::SharedRng;
+use crate::io::configs::TimerConfig;
+use crate::io::futures::{DelayedResult, Timeout};
+use crate::types::SharedRng;
 
 /// シミュレータ用のタイマー実装.
 ///

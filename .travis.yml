@@ -11,6 +11,7 @@ before_script:
 script:
   - cargo test
   - cargo clippy
+  - cd raftlog_simu; cargo clippy --all-targets
 
 matrix:
   allow_failures:

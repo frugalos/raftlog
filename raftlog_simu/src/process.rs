@@ -6,12 +6,11 @@ use raftlog::log::{LogEntry, LogIndex, ProposalId};
 use raftlog::message::SequenceNumber;
 use raftlog::node::NodeId;
 use raftlog::{Event, Io, ReplicatedLog};
-use serdeconv;
 use std::collections::VecDeque;
 
-use machine::{Command, MachineState};
-use types::LogicalDuration;
-use {DeterministicIo, Error, ErrorKind, Logger, Result};
+use crate::machine::{Command, MachineState};
+use crate::types::LogicalDuration;
+use crate::{DeterministicIo, Error, ErrorKind, Logger, Result};
 
 /// プロセス.
 ///
@@ -188,7 +187,7 @@ impl Stream for Process {
     }
 }
 
-#[cfg_attr(feature = "cargo-clippy", allow(large_enum_variant))]
+#[allow(clippy::large_enum_variant)]
 enum ProcessState {
     Alive(Alive),
     Down(Down),
@@ -270,7 +269,8 @@ impl Alive {
     ) -> Self {
         let metric_builder = MetricBuilder::new();
         let machine = MachineState::new();
-        let rlog = ReplicatedLog::new(node_id, old_members, io, &metric_builder).expect("Never fails");
+        let rlog =
+            ReplicatedLog::new(node_id, old_members, io, &metric_builder).expect("Never fails");
         Alive {
             logger,
             machine,

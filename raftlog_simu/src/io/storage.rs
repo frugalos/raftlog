@@ -6,10 +6,10 @@ use raftlog::log::{Log, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use raftlog::node::NodeId;
 use trackable::error::ErrorKindExt;
 
-use io::configs::StorageConfig;
-use io::futures::{DelayedResult, LoadBallot, LoadLog, SaveBallot, SaveLog};
-use types::SharedRng;
-use {ErrorKind, Result};
+use crate::io::configs::StorageConfig;
+use crate::io::futures::{DelayedResult, LoadBallot, LoadLog, SaveBallot, SaveLog};
+use crate::types::SharedRng;
+use crate::{ErrorKind, Result};
 
 /// シミュレータ用のストレージ実装.
 ///

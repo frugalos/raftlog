@@ -4,8 +4,8 @@ use rand::{Rng, SeedableRng, StdRng};
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use io::IoConfig;
-use types::{LogicalDuration, Probability, Range, SharedRng};
+use crate::io::IoConfig;
+use crate::types::{LogicalDuration, Probability, Range, SharedRng};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulatorConfig {
