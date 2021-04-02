@@ -1,5 +1,8 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::Future;
 use std::mem;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::super::Common;
 use crate::log::{LogEntry, LogIndex, LogSuffix};
@@ -36,8 +39,14 @@ impl<IO: Io> LogAppender<IO> {
             self.pendings.extend(entries)
         }
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<Option<LogSuffix>> {
-        if let Async::Ready(Some(())) = track!(self.task.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<Option<LogSuffix>> {
+        let mut task: OptionFuture<_> = self.task.as_mut().into();
+        if let Poll::Ready(Some(result)) = track!(Pin::new(&mut task).poll(cx)) {
+            let _ = track!(result)?;
             self.task = None;
             let suffix = self.in_progress.take().expect("Never fails");
             track!(common.handle_log_appended(&suffix))?;

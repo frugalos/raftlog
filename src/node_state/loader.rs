@@ -1,15 +1,17 @@
-use futures::{Async, Future, Poll};
+use futures::task::{Context, Poll};
+use futures::Future;
+use std::pin::Pin;
 
 use super::{Common, NextState};
 use crate::election::Role;
 use crate::log::{Log, LogIndex};
-use crate::{Error, Io, Result};
+use crate::{Io, Result};
 
 /// ノード起動時に、前回の状況を復元(ロード)を行う.
-pub struct Loader<IO: Io> {
+pub struct Loader<IO: Io + Unpin> {
     phase: Phase<IO::LoadBallot, IO::LoadLog>,
 }
-impl<IO: Io> Loader<IO> {
+impl<IO: Io + Unpin> Loader<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         let phase = Phase::A(common.load_ballot());
         Loader { phase }
@@ -19,8 +21,13 @@ impl<IO: Io> Loader<IO> {
         common.set_timeout(Role::Follower);
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        while let Async::Ready(phase) = track!(self.phase.poll().map_err(Error::from))? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        while let Poll::Ready(result) = track!(Pin::new(&mut self.phase).poll(cx)) {
+            let phase = track!(result)?;
             let next = match phase {
                 Phase::A(ballot) => {
                     // 1) 前回の投票状況を復元
@@ -83,18 +90,17 @@ enum Phase<A, B> {
     A(A),
     B(B),
 }
-impl<A, B> Future for Phase<A, B>
+impl<A, B, S, T> Future for Phase<A, B>
 where
-    A: Future<Error = Error>,
-    B: Future<Error = Error>,
+    A: Future<Output = Result<S>> + Unpin,
+    B: Future<Output = Result<T>> + Unpin,
 {
-    type Item = Phase<A::Item, B::Item>;
-    type Error = Error;
+    type Output = Result<Phase<S, T>>;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self {
-            Phase::A(f) => track!(f.poll()).map(|t| t.map(Phase::A)),
-            Phase::B(f) => track!(f.poll()).map(|t| t.map(Phase::B)),
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        match self.get_mut() {
+            Phase::A(f) => track!(Pin::new(f).poll(cx)).map(|t| t.map(Phase::A)),
+            Phase::B(f) => track!(Pin::new(f).poll(cx)).map(|t| t.map(Phase::B)),
         }
     }
 }
@@ -102,7 +108,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::task::noop_waker_ref;
     use prometrics::metrics::MetricBuilder;
+    use std::task::Context;
 
     use crate::election::Term;
     use crate::log::{LogEntry, LogPosition, LogPrefix, LogSuffix};
@@ -111,8 +119,10 @@ mod tests {
     use crate::test_util::tests::TestIoBuilder;
     use trackable::result::TestResult;
 
-    #[test]
-    fn it_works() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn it_works() -> TestResult {
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
@@ -146,7 +156,7 @@ mod tests {
             },
         );
         loop {
-            if let Some(next) = track!(loader.run_once(&mut common))? {
+            if let Some(next) = track!(loader.run_once(&mut common, &mut cx))? {
                 assert!(next.is_candidate());
                 // term は変化なし
                 assert_eq!(term, common.log().tail().prev_term);
@@ -162,8 +172,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn it_fails_if_log_suffix_contains_older_term() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn it_fails_if_log_suffix_contains_older_term() -> TestResult {
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new().add_member(node_id.clone()).finish();
@@ -206,7 +218,7 @@ mod tests {
         //  [1] at src/node_state/common/mod.rs:78
         //  [2] at src/node_state/loader.rs:58
         //  [3] at src/node_state/loader.rs:198
-        assert!(loader.run_once(&mut common).is_err());
+        assert!(loader.run_once(&mut common, &mut cx).is_err());
 
         Ok(())
     }

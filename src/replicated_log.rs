@@ -1,5 +1,7 @@
-use futures::{Poll, Stream};
+use futures::task::{Context, Poll};
+use futures::Stream;
 use prometrics::metrics::MetricBuilder;
+use std::pin::Pin;
 use std::sync::Arc;
 use trackable::error::ErrorKindExt;
 
@@ -11,7 +13,7 @@ use crate::message::SequenceNumber;
 use crate::metrics::RaftlogMetrics;
 use crate::node::{Node, NodeId};
 use crate::node_state::{NodeState, RoleState};
-use crate::{Error, ErrorKind, Result};
+use crate::{ErrorKind, Result};
 
 /// Raftアルゴリズムに基づく分散複製ログ.
 ///
@@ -27,11 +29,11 @@ use crate::{Error, ErrorKind, Result};
 /// `this.local_history().config().is_known_node()`メソッドを使うことで、
 /// クラスタ内に属しているかどうかは判定可能なので、利用者側が明示的に確認して、
 /// 不要になった`ReplicatedLog`インスタンスを回収することは可能.
-pub struct ReplicatedLog<IO: Io> {
+pub struct ReplicatedLog<IO: Io + Unpin> {
     node: NodeState<IO>,
     metrics: Arc<RaftlogMetrics>,
 }
-impl<IO: Io> ReplicatedLog<IO> {
+impl<IO: Io + Unpin> ReplicatedLog<IO> {
     /// `members`で指定されたクラスタに属する`ReplicatedLog`のローカルインスタンス(ノード)を生成する.
     ///
     /// ローカルノードのIDは`node_id`で指定するが、これが`members`の含まれている必要は必ずしもない.
@@ -275,11 +277,12 @@ impl<IO: Io> ReplicatedLog<IO> {
         self.node.common.io_mut()
     }
 }
-impl<IO: Io> Stream for ReplicatedLog<IO> {
-    type Item = Event;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        track!(self.node.poll(), "node={:?}", self.local_node())
+impl<IO: Io + Unpin> Stream for ReplicatedLog<IO> {
+    type Item = Result<Event>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // TODO
+        //track!(Pin::new(&mut self.node).poll_next(cx), "node={:?}", self.local_node())
+        Pin::new(&mut self.node).poll_next(cx)
     }
 }
 

@@ -5,6 +5,7 @@ use crate::election::Role;
 use crate::log::{LogEntry, LogIndex, LogSuffix, ProposalId};
 use crate::message::{Message, SequenceNumber};
 use crate::{ErrorKind, Io, Result};
+use std::task::Context;
 
 mod appender;
 mod follower;
@@ -68,8 +69,12 @@ impl<IO: Io> Leader<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        while let Some(appended) = track!(self.appender.run_once(common))? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        while let Some(appended) = track!(self.appender.run_once(common, cx))? {
             for e in &appended.entries {
                 if let LogEntry::Config { ref config, .. } = *e {
                     self.followers.handle_config_updated(config);
@@ -100,7 +105,7 @@ impl<IO: Io> Leader<IO> {
             self.broadcast_slice(common, appended);
         }
         track!(self.handle_change_config(common))?;
-        track!(self.followers.run_once(common))?;
+        track!(self.followers.run_once(common, cx))?;
         Ok(None)
     }
     pub fn propose(&mut self, common: &mut Common<IO>, entry: LogEntry) -> ProposalId {

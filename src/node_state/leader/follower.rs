@@ -1,6 +1,8 @@
-use futures::{Async, Future};
+use futures::Future;
 use std::collections::BTreeMap;
 use std::mem;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use trackable::error::ErrorKindExt;
 
 use super::super::Common;
@@ -39,11 +41,13 @@ impl<IO: Io> FollowersManager<IO> {
             last_broadcast_seq_no: SequenceNumber::new(0),
         }
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<()> {
+    pub fn run_once(&mut self, common: &mut Common<IO>, cx: &mut Context<'_>) -> Result<()> {
         // バックグランドタスク(ログ同期用の読み込み処理)を実行する.
         let mut dones = Vec::new();
         for (follower, task) in &mut self.tasks {
-            if let Async::Ready(log) = track!(task.poll())? {
+            // track
+            if let Poll::Ready(result) = Pin::new(task).poll(cx) {
+                let log = track!(result)?;
                 dones.push((follower.clone(), log));
             }
         }

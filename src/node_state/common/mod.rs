@@ -1,5 +1,8 @@
-use futures::{Async, Future, Poll};
+use futures::future::OptionFuture;
+use futures::Future;
 use std::collections::VecDeque;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use self::rpc_builder::{RpcCallee, RpcCaller};
 use super::candidate::Candidate;
@@ -12,7 +15,7 @@ use crate::log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use crate::message::{Message, MessageHeader, SequenceNumber};
 use crate::metrics::NodeStateMetrics;
 use crate::node::{Node, NodeId};
-use crate::{Error, ErrorKind, Event, Io, Result};
+use crate::{ErrorKind, Event, Io, Result};
 
 mod rpc_builder;
 
@@ -31,7 +34,7 @@ pub struct Common<IO: Io> {
 }
 impl<IO> Common<IO>
 where
-    IO: Io,
+    IO: Io + Unpin,
 {
     /// 新しい`Common`インスタンスを生成する.
     pub fn new(
@@ -259,8 +262,8 @@ where
     }
 
     /// タイムアウトに達していないかを確認する.
-    pub fn poll_timeout(&mut self) -> Result<Async<()>> {
-        track!(self.timeout.poll())
+    pub fn poll_timeout(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        track!(Pin::new(&mut self.timeout).poll(cx))
     }
 
     /// ユーザに通知するイベントがある場合には、それを返す.
@@ -364,10 +367,12 @@ where
     }
 
     /// バックグランド処理を一単位実行する.
-    pub fn run_once(&mut self) -> Result<NextState<IO>> {
+    pub fn run_once(&mut self, cx: &mut Context<'_>) -> Result<NextState<IO>> {
         loop {
             // スナップショットのインストール処理
-            if let Async::Ready(Some(summary)) = track!(self.install_snapshot.poll())? {
+            let mut install_snapshot: OptionFuture<_> = self.install_snapshot.as_mut().into();
+            if let Poll::Ready(Some(result)) = track!(Pin::new(&mut install_snapshot).poll(cx)) {
+                let summary = track!(result)?;
                 let SnapshotSummary {
                     tail: new_head,
                     config,
@@ -378,7 +383,9 @@ where
             }
 
             // コミット済みログの処理.
-            if let Async::Ready(Some(log)) = track!(self.load_committed.poll())? {
+            let mut load_committed: OptionFuture<_> = self.load_committed.as_mut().into();
+            if let Poll::Ready(Some(result)) = track!(Pin::new(&mut load_committed).poll(cx)) {
+                let log = track!(result)?;
                 // コミット済みのログを取得したので、ユーザに（イベント経由で）通知する.
                 self.load_committed = None;
                 match log {
@@ -464,10 +471,13 @@ impl<IO: Io> InstallSnapshot<IO> {
     }
 }
 impl<IO: Io> Future for InstallSnapshot<IO> {
-    type Item = SnapshotSummary;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(track!(self.future.poll())?.map(|()| self.summary.clone()))
+    type Output = Result<SnapshotSummary>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        // TODO
+        //track!(self.future.poll())?.map(|()| Ok(self.summary.clone()))
+        Pin::new(&mut self.future)
+            .poll(cx)
+            .map(|result| result.map(|()| self.summary.clone()))
     }
 }
 
@@ -481,8 +491,8 @@ mod tests {
     use crate::metrics::NodeStateMetrics;
     use crate::test_util::tests::TestIoBuilder;
 
-    #[test]
-    fn is_snapshot_installing_works() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn is_snapshot_installing_works() -> TestResult {
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
@@ -505,8 +515,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn is_focusing_on_installing_snapshot_works() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn is_focusing_on_installing_snapshot_works() -> TestResult {
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()

@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::task::Context;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
@@ -36,7 +37,11 @@ impl<IO: Io> FollowerSnapshot<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        _cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
         if common.is_snapshot_installing() {
             Ok(None)
         } else {

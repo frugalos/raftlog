@@ -1,4 +1,6 @@
 use futures::Future;
+use std::pin::Pin;
+use std::task::Context;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle, FollowerSnapshot};
@@ -40,8 +42,12 @@ impl<IO: Io> FollowerInit<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        let item = track!(self.future.poll())?;
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        let item = track!(Pin::new(&mut self.future).poll(cx));
         if item.is_ready() {
             if let Some(header) = self.pending_vote.take() {
                 common.rpc_callee(&header).reply_request_vote(true);

@@ -1,4 +1,7 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
@@ -56,8 +59,14 @@ impl<IO: Io> FollowerAppend<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        if let Async::Ready(_) = track!(self.future.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        let mut future: OptionFuture<_> = self.future.as_mut().into();
+        if let Poll::Ready(result) = track!(Pin::new(&mut future).poll(cx)) {
+            let _ = track!(result);
             if self.new_log_tail == self.message.suffix.tail() {
                 track!(common.handle_log_appended(&self.message.suffix))?;
             }

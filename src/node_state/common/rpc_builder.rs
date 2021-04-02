@@ -5,10 +5,10 @@ use crate::node::NodeId;
 use crate::Io;
 
 /// RPC要求メッセージの送信を補助するためのビルダ.
-pub struct RpcCaller<'a, IO: 'a + Io> {
+pub struct RpcCaller<'a, IO: 'a + Io + Unpin> {
     common: &'a mut Common<IO>,
 }
-impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
+impl<'a, IO: 'a + Io + Unpin> RpcCaller<'a, IO> {
     pub fn new(common: &'a mut Common<IO>) -> Self {
         RpcCaller { common }
     }

@@ -3,7 +3,7 @@ use futures::Future;
 use crate::election::{Ballot, Role};
 use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
 use crate::message::Message;
-use crate::{Error, Result};
+use crate::Result;
 
 /// Raftの実行に必要なI/O機能を提供するためのトレイト.
 ///
@@ -21,21 +21,21 @@ use crate::{Error, Result};
 ///      - ただし、メッセージの改竄や捏造、はNG
 /// - **タイマー**
 ///   - タイムアウト管理用のタイマー
-pub trait Io {
+pub trait Io: Unpin {
     /// ローカルノードの投票状況を保存するための`Future`.
-    type SaveBallot: Future<Item = (), Error = Error>;
+    type SaveBallot: Future<Output = Result<()>> + Unpin;
 
     /// ノーカルノードの投票情報を取得ための`Future`.
-    type LoadBallot: Future<Item = Option<Ballot>, Error = Error>;
+    type LoadBallot: Future<Output = Result<Option<Ballot>>> + Unpin;
 
     /// ローカルログを保存するための`Future`.
-    type SaveLog: Future<Item = (), Error = Error>;
+    type SaveLog: Future<Output = Result<()>> + Unpin;
 
     /// ローカルログを取得するための`Future`.
-    type LoadLog: Future<Item = Log, Error = Error>;
+    type LoadLog: Future<Output = Result<Log>> + Unpin;
 
     /// タイムアウトを表現するための`Future`.
-    type Timeout: Future<Item = (), Error = Error>;
+    type Timeout: Future<Output = Result<()>> + Unpin;
 
     /// ローカルノードに対して送信されたメッセージの受信を試みる.
     ///

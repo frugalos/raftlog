@@ -1,5 +1,8 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::Future;
 use std::collections::HashSet;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::{Common, NextState};
 use crate::election::Role;
@@ -19,7 +22,7 @@ pub struct Candidate<IO: Io> {
     followers: HashSet<NodeId>,
     init: Option<IO::SaveBallot>,
 }
-impl<IO: Io> Candidate<IO> {
+impl<IO: Io + Unpin> Candidate<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Candidate);
         let future = common.save_ballot();
@@ -47,8 +50,14 @@ impl<IO: Io> Candidate<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        if let Async::Ready(Some(())) = track!(self.init.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        let mut init: OptionFuture<_> = self.init.as_mut().into();
+        if let Poll::Ready(Some(result)) = track!(Pin::new(&mut init).poll(cx)) {
+            let _ = track!(result)?;
             self.init = None;
             common.rpc_caller().broadcast_request_vote();
         }

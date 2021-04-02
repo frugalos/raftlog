@@ -6,6 +6,7 @@ use super::{Common, NextState};
 use crate::election::Role;
 use crate::message::{Message, MessageHeader};
 use crate::{Io, Result};
+use std::task::Context;
 
 mod append;
 mod idle;
@@ -60,12 +61,16 @@ impl<IO: Io> Follower<IO> {
             Follower::Snapshot(ref mut t) => track!(t.handle_message(common, message)),
         }
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
         match *self {
-            Follower::Init(ref mut t) => track!(t.run_once(common)),
+            Follower::Init(ref mut t) => track!(t.run_once(common, cx)),
             Follower::Idle(_) => Ok(None),
-            Follower::Append(ref mut t) => track!(t.run_once(common)),
-            Follower::Snapshot(ref mut t) => track!(t.run_once(common)),
+            Follower::Append(ref mut t) => track!(t.run_once(common, cx)),
+            Follower::Snapshot(ref mut t) => track!(t.run_once(common, cx)),
         }
     }
 }
