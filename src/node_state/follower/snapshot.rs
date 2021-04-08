@@ -19,7 +19,7 @@ use crate::{Io, Result};
 /// このサブ状態が使われるのは「未コミット地点に対するスナップショット」の
 /// インストールをリーダから指示された場合、のみである.
 pub struct FollowerSnapshot<IO: Io> {
-    _phantom: PhantomData<IO>,
+    _phantom: PhantomData<fn() -> IO>,
 }
 impl<IO: Io> FollowerSnapshot<IO> {
     pub fn new() -> Self {

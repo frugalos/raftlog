@@ -1,4 +1,5 @@
 use futures::Future;
+use std::pin::Pin;
 
 use crate::election::{Ballot, Role};
 use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
@@ -21,7 +22,7 @@ use crate::Result;
 ///      - ただし、メッセージの改竄や捏造、はNG
 /// - **タイマー**
 ///   - タイムアウト管理用のタイマー
-pub trait Io: Unpin {
+pub trait Io {
     /// ローカルノードの投票状況を保存するための`Future`.
     type SaveBallot: Future<Output = Result<()>>;
 
@@ -44,32 +45,32 @@ pub trait Io: Unpin {
     /// このメソッドが`Err`を返した場合には、ローカルのRaftノードが
     /// 停止してしまうので、時間経過によって自動的には回復しない
     /// 致命的なものを除いては、`Err`は返さないことが望ましい.
-    fn try_recv_message(&mut self) -> Result<Option<Message>>;
+    fn try_recv_message(self: Pin<&mut Self>) -> Result<Option<Message>>;
 
     /// メッセージを送信する.
     ///
     /// もしメッセージ送信に何らかの理由で失敗した場合でも、単に無視される.
     /// 仮にチャンネルの致命的な問題が発生している場合には、次の`try_recv_message`メソッドの
     /// 呼び出しで`Err`を返すこと.
-    fn send_message(&mut self, message: Message);
+    fn send_message(self: Pin<&mut Self>, message: Message);
 
     /// ローカルノードの投票状況を保存する.
-    fn save_ballot(&mut self, ballot: Ballot) -> Self::SaveBallot;
+    fn save_ballot(self: Pin<&mut Self>, ballot: Ballot) -> Self::SaveBallot;
 
     /// ローカルノードの前回の投票状況を取得する.
-    fn load_ballot(&mut self) -> Self::LoadBallot;
+    fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot;
 
     /// ローカルログの前半部分(i.e., スナップショット)を保存する.
     ///
     /// 保存に成功した場合は、それ以前のログ領域は破棄してしまって構わない.
-    fn save_log_prefix(&mut self, prefix: LogPrefix) -> Self::SaveLog;
+    fn save_log_prefix(self: Pin<&mut Self>, prefix: LogPrefix) -> Self::SaveLog;
 
     /// ローカルログの末尾部分を保存(追記)する.
     ///
     /// `suffix`の開始位置が、現在のログの末尾よりも前方の場合は、
     /// 新しい開始位置よりも後ろの古いエントリは削除してしまって構わない.
     /// (リーダの入れ替えにより、ログの未コミット部分で競合が発生したことを示している)
-    fn save_log_suffix(&mut self, suffix: &LogSuffix) -> Self::SaveLog;
+    fn save_log_suffix(self: Pin<&mut Self>, suffix: &LogSuffix) -> Self::SaveLog;
 
     /// ローカルログの指定範囲のエントリを取得する.
     ///
@@ -81,15 +82,15 @@ pub trait Io: Unpin {
     /// どちらの挙動も許容される.
     ///
     /// ただし、`start`とは異なる位置から、エントリの取得を開始することは許可されない.
-    fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog;
+    fn load_log(self: Pin<&mut Self>, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog;
 
     /// 選挙における役割に応じた時間のタイムアウトオブジェクトを生成する.
-    fn create_timeout(&mut self, role: Role) -> Self::Timeout;
+    fn create_timeout(self: Pin<&mut Self>, role: Role) -> Self::Timeout;
 
     /// I/O処理を行う余裕があるかどうかを返す.
     ///
     /// これが`true`を返している間は、フォロワーの同期処理は実施されない.
-    fn is_busy(&mut self) -> bool {
+    fn is_busy(self: Pin<&mut Self>) -> bool {
         false
     }
 }

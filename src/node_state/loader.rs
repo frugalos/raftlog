@@ -8,10 +8,10 @@ use crate::log::{Log, LogIndex};
 use crate::{Io, Result};
 
 /// ノード起動時に、前回の状況を復元(ロード)を行う.
-pub struct Loader<IO: Io + Unpin> {
+pub struct Loader<IO: Io> {
     phase: Phase<Pin<Box<IO::LoadBallot>>, Pin<Box<IO::LoadLog>>>,
 }
-impl<IO: Io + Unpin> Loader<IO> {
+impl<IO: Io> Loader<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         let phase = Phase::A(Box::pin(common.load_ballot()));
         Loader { phase }

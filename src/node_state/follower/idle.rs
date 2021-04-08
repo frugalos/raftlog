@@ -11,7 +11,7 @@ use crate::{ErrorKind, Io, Result};
 ///
 /// リーダから送られてきた`AppendEntriesCall`および`InstallSnapshotCast`を処理する.
 pub struct FollowerIdle<IO: Io> {
-    _phantom: PhantomData<IO>,
+    _phantom: PhantomData<fn() -> IO>,
 }
 impl<IO: Io> FollowerIdle<IO> {
     pub fn new() -> Self {

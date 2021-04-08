@@ -34,7 +34,7 @@ pub struct NodeState<IO: Io> {
     started_at: Instant,
     pub metrics: NodeStateMetrics,
 }
-impl<IO: Io + Unpin> NodeState<IO> {
+impl<IO: Io> NodeState<IO> {
     pub fn load(node_id: NodeId, config: ClusterConfig, io: IO, metrics: NodeStateMetrics) -> Self {
         let mut common = Common::new(node_id, io, config, metrics.clone());
         let role = RoleState::Loader(Loader::new(&mut common));
@@ -115,7 +115,7 @@ impl<IO: Io + Unpin> NodeState<IO> {
         self.role = next;
     }
 }
-impl<IO: Io + Unpin> Stream for NodeState<IO> {
+impl<IO: Io> Stream for NodeState<IO> {
     type Item = Result<Event>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();

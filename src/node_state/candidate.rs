@@ -22,7 +22,7 @@ pub struct Candidate<IO: Io> {
     followers: HashSet<NodeId>,
     init: Option<Pin<Box<IO::SaveBallot>>>,
 }
-impl<IO: Io + Unpin> Candidate<IO> {
+impl<IO: Io> Candidate<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Candidate);
         let future = Box::pin(common.save_ballot());

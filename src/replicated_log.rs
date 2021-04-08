@@ -29,11 +29,11 @@ use crate::{ErrorKind, Result};
 /// `this.local_history().config().is_known_node()`メソッドを使うことで、
 /// クラスタ内に属しているかどうかは判定可能なので、利用者側が明示的に確認して、
 /// 不要になった`ReplicatedLog`インスタンスを回収することは可能.
-pub struct ReplicatedLog<IO: Io + Unpin> {
+pub struct ReplicatedLog<IO: Io> {
     node: NodeState<IO>,
     metrics: Arc<RaftlogMetrics>,
 }
-impl<IO: Io + Unpin> ReplicatedLog<IO> {
+impl<IO: Io> ReplicatedLog<IO> {
     /// `members`で指定されたクラスタに属する`ReplicatedLog`のローカルインスタンス(ノード)を生成する.
     ///
     /// ローカルノードのIDは`node_id`で指定するが、これが`members`の含まれている必要は必ずしもない.
@@ -273,11 +273,11 @@ impl<IO: Io + Unpin> ReplicatedLog<IO> {
     /// 破壊的な操作は、Raftの管理外の挙動となり、
     /// 整合性を崩してしまう可能性もあるので、
     /// 注意を喚起する意味で`unsafe`と設定されている.
-    pub unsafe fn io_mut(&mut self) -> &mut IO {
+    pub unsafe fn io_mut(&mut self) -> Pin<&mut IO> {
         self.node.common.io_mut()
     }
 }
-impl<IO: Io + Unpin> Stream for ReplicatedLog<IO> {
+impl<IO: Io> Stream for ReplicatedLog<IO> {
     type Item = Result<Event>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // TODO

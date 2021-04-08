@@ -112,30 +112,30 @@ pub mod tests {
         type LoadLog = LoadLogImpl;
         type Timeout = TokioTimeout;
 
-        fn try_recv_message(&mut self) -> Result<Option<Message>> {
+        fn try_recv_message(self: Pin<&mut Self>) -> Result<Option<Message>> {
             Ok(None)
         }
 
-        fn send_message(&mut self, _message: Message) {}
+        fn send_message(self: Pin<&mut Self>, _message: Message) {}
 
-        fn save_ballot(&mut self, _ballot: Ballot) -> Self::SaveBallot {
+        fn save_ballot(self: Pin<&mut Self>, _ballot: Ballot) -> Self::SaveBallot {
             NoopSaveBallot
         }
 
-        fn load_ballot(&mut self) -> Self::LoadBallot {
+        fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot {
             let mut ballots = self.ballots.lock().expect("Never fails");
             LoadBallotImpl(ballots.pop())
         }
 
-        fn save_log_prefix(&mut self, _prefix: LogPrefix) -> Self::SaveLog {
+        fn save_log_prefix(self: Pin<&mut Self>, _prefix: LogPrefix) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn save_log_suffix(&mut self, _suffix: &LogSuffix) -> Self::SaveLog {
+        fn save_log_suffix(self: Pin<&mut Self>, _suffix: &LogSuffix) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
+        fn load_log(self: Pin<&mut Self>, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
             let mut logs = self.logs.lock().expect("Never fails");
             if let Some(log) = logs.remove(&(start, end)) {
                 match log {
@@ -159,7 +159,7 @@ pub mod tests {
             }
         }
 
-        fn create_timeout(&mut self, role: Role) -> Self::Timeout {
+        fn create_timeout(self: Pin<&mut Self>, role: Role) -> Self::Timeout {
             match role {
                 Role::Leader => TokioTimeout::new(self.leader_timeout),
                 Role::Follower => TokioTimeout::new(self.follower_timeout),

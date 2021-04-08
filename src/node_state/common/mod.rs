@@ -25,7 +25,7 @@ pub struct Common<IO: Io> {
     history: LogHistory,
     timeout: Pin<Box<IO::Timeout>>,
     events: VecDeque<Event>,
-    io: IO,
+    io: Pin<Box<IO>>,
     unread_message: Option<Message>,
     seq_no: SequenceNumber,
     load_committed: Option<Pin<Box<IO::LoadLog>>>,
@@ -34,17 +34,13 @@ pub struct Common<IO: Io> {
 }
 impl<IO> Common<IO>
 where
-    IO: Io + Unpin,
+    IO: Io,
 {
     /// 新しい`Common`インスタンスを生成する.
-    pub fn new(
-        node_id: NodeId,
-        mut io: IO,
-        config: ClusterConfig,
-        metrics: NodeStateMetrics,
-    ) -> Self {
+    pub fn new(node_id: NodeId, io: IO, config: ClusterConfig, metrics: NodeStateMetrics) -> Self {
         // 最初は（仮に）フォロワーだとしておく
-        let timeout = io.create_timeout(Role::Follower);
+        let mut io = Box::pin(io);
+        let timeout = io.as_mut().create_timeout(Role::Follower);
         Common {
             local_node: Node::new(node_id),
             io,
@@ -232,33 +228,33 @@ where
     ///
     /// 使い方を間違えるとデータの整合性を破壊してしまう可能性があるので、
     /// 注意を喚起する意味を込めて`unsafe`とする.
-    pub unsafe fn io_mut(&mut self) -> &mut IO {
-        &mut self.io
+    pub unsafe fn io_mut(&mut self) -> Pin<&mut IO> {
+        self.io.as_mut()
     }
 
     /// 指定範囲のローカルログをロードする.
     pub fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> IO::LoadLog {
-        self.io.load_log(start, end)
+        self.io.as_mut().load_log(start, end)
     }
 
     /// ローカルログの末尾部分に`suffix`を追記する.
     pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
-        self.io.save_log_suffix(suffix)
+        self.io.as_mut().save_log_suffix(suffix)
     }
 
     /// 現在の投票状況を保存する.
     pub fn save_ballot(&mut self) -> IO::SaveBallot {
-        self.io.save_ballot(self.local_node.ballot.clone())
+        self.io.as_mut().save_ballot(self.local_node.ballot.clone())
     }
 
     /// 以前の投票状況を復元する.
     pub fn load_ballot(&mut self) -> IO::LoadBallot {
-        self.io.load_ballot()
+        self.io.as_mut().load_ballot()
     }
 
     /// 指定されたロール用のタイムアウトを設定する.
     pub fn set_timeout(&mut self, role: Role) {
-        self.timeout = Box::pin(self.io.create_timeout(role));
+        self.timeout = Box::pin(self.io.as_mut().create_timeout(role));
     }
 
     /// タイムアウトに達していないかを確認する.
@@ -277,7 +273,7 @@ where
         if let Some(message) = self.unread_message.take() {
             Ok(Some(message))
         } else {
-            track!(self.io.try_recv_message())
+            track!(self.io.as_mut().try_recv_message())
         }
     }
 
@@ -466,7 +462,7 @@ impl<IO: Io> InstallSnapshot<IO> {
             tail: prefix.tail,
             config: prefix.config.clone(),
         };
-        let future = Box::pin(common.io.save_log_prefix(prefix));
+        let future = Box::pin(common.io.as_mut().save_log_prefix(prefix));
         InstallSnapshot { future, summary }
     }
 }
