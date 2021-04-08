@@ -1,5 +1,6 @@
 use futures::Future;
 use std::pin::Pin;
+use std::task::Context;
 
 use crate::election::{Ballot, Role};
 use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
@@ -45,7 +46,7 @@ pub trait Io {
     /// このメソッドが`Err`を返した場合には、ローカルのRaftノードが
     /// 停止してしまうので、時間経過によって自動的には回復しない
     /// 致命的なものを除いては、`Err`は返さないことが望ましい.
-    fn try_recv_message(self: Pin<&mut Self>) -> Result<Option<Message>>;
+    fn try_recv_message(self: Pin<&mut Self>, cx: &mut Context) -> Result<Option<Message>>;
 
     /// メッセージを送信する.
     ///

@@ -269,11 +269,11 @@ where
     }
 
     /// 受信メッセージがある場合には、それを返す.
-    pub fn try_recv_message(&mut self) -> Result<Option<Message>> {
+    pub fn try_recv_message(&mut self, cx: &mut Context) -> Result<Option<Message>> {
         if let Some(message) = self.unread_message.take() {
             Ok(Some(message))
         } else {
-            track!(self.io.as_mut().try_recv_message())
+            track!(self.io.as_mut().try_recv_message(cx))
         }
     }
 

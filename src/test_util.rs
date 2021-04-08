@@ -112,7 +112,7 @@ pub mod tests {
         type LoadLog = LoadLogImpl;
         type Timeout = TokioTimeout;
 
-        fn try_recv_message(self: Pin<&mut Self>) -> Result<Option<Message>> {
+        fn try_recv_message(self: Pin<&mut Self>, _cx: &mut Context) -> Result<Option<Message>> {
             Ok(None)
         }
 

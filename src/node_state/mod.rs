@@ -165,7 +165,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             }
 
             // 受信メッセージ処理
-            if let Some(message) = track!(this.common.try_recv_message())? {
+            if let Some(message) = track!(this.common.try_recv_message(cx))? {
                 did_something = true;
                 if let Some(next) = track!(this.handle_message(message))? {
                     this.handle_role_change(next);
