@@ -115,7 +115,12 @@ impl<IO: Io> FollowersManager<IO> {
     }
 
     /// フォロワーのローカルログとの同期処理を実行する.
-    pub fn log_sync(&mut self, common: &mut Common<IO>, reply: &AppendEntriesReply) -> Result<()> {
+    pub fn log_sync(
+        &mut self,
+        common: &mut Common<IO>,
+        reply: &AppendEntriesReply,
+        cx: &mut Context,
+    ) -> Result<()> {
         if reply.busy || self.tasks.contains_key(&reply.header.sender) {
             // フォロワーが忙しい or 既に同期処理が進行中
             return Ok(());
@@ -145,7 +150,7 @@ impl<IO: Io> FollowersManager<IO> {
             // フォロワーのログとリーダのログの同期(合流)点を探索中
             follower.log_tail
         };
-        let future = common.load_log(follower.log_tail, Some(end));
+        let future = common.load_log(follower.log_tail, Some(end), cx);
         self.tasks
             .insert(reply.header.sender.clone(), Box::pin(future));
         Ok(())

@@ -22,7 +22,7 @@ pub struct FollowerAppend<IO: Io> {
     message: AppendEntriesCall,
 }
 impl<IO: Io> FollowerAppend<IO> {
-    pub fn new(common: &mut Common<IO>, mut message: AppendEntriesCall) -> Self {
+    pub fn new(common: &mut Common<IO>, mut message: AppendEntriesCall, cx: &mut Context) -> Self {
         // メッセージ群の順序は逆転する可能性があるので、
         // それによってインデックスの巻き戻りが発生しないように調整.
         let mut new_log_tail = message.suffix.tail();
@@ -41,7 +41,7 @@ impl<IO: Io> FollowerAppend<IO> {
             // (AppendEntriesCallは、単にハートビートの用途でも使用されるので、空のケースは珍しくない)
             None
         } else {
-            Some(Box::pin(common.save_log_suffix(&message.suffix)))
+            Some(Box::pin(common.save_log_suffix(&message.suffix, cx)))
         };
         FollowerAppend {
             future,

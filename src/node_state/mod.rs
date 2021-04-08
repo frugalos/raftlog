@@ -35,9 +35,15 @@ pub struct NodeState<IO: Io> {
     pub metrics: NodeStateMetrics,
 }
 impl<IO: Io> NodeState<IO> {
-    pub fn load(node_id: NodeId, config: ClusterConfig, io: IO, metrics: NodeStateMetrics) -> Self {
+    pub fn load(
+        node_id: NodeId,
+        config: ClusterConfig,
+        io: IO,
+        metrics: NodeStateMetrics,
+        cx: &mut Context,
+    ) -> Self {
         let mut common = Common::new(node_id, io, config, metrics.clone());
-        let role = RoleState::Loader(Loader::new(&mut common));
+        let role = RoleState::Loader(Loader::new(&mut common, cx));
         let started_at = Instant::now();
         NodeState {
             common,
@@ -49,36 +55,42 @@ impl<IO: Io> NodeState<IO> {
     pub fn is_loading(&self) -> bool {
         self.role.is_loader()
     }
-    pub fn start_election(&mut self) {
+    pub fn start_election(&mut self, cx: &mut Context) {
         if let RoleState::Follower(_) = self.role {
-            let next = self.common.transit_to_candidate();
+            let next = self.common.transit_to_candidate(cx);
             self.handle_role_change(next);
         }
     }
-    fn handle_timeout(&mut self) -> Result<Option<RoleState<IO>>> {
+    fn handle_timeout(&mut self, cx: &mut Context) -> Result<Option<RoleState<IO>>> {
         match self.role {
             RoleState::Loader(ref mut t) => track!(t.handle_timeout(&mut self.common)),
-            RoleState::Follower(ref mut t) => track!(t.handle_timeout(&mut self.common)),
-            RoleState::Candidate(ref mut t) => track!(t.handle_timeout(&mut self.common)),
+            RoleState::Follower(ref mut t) => track!(t.handle_timeout(&mut self.common, cx)),
+            RoleState::Candidate(ref mut t) => track!(t.handle_timeout(&mut self.common, cx)),
             RoleState::Leader(ref mut t) => track!(t.handle_timeout(&mut self.common)),
         }
     }
-    fn handle_message(&mut self, message: Message) -> Result<Option<RoleState<IO>>> {
+    fn handle_message(
+        &mut self,
+        message: Message,
+        cx: &mut Context,
+    ) -> Result<Option<RoleState<IO>>> {
         if let RoleState::Loader(_) = self.role {
             // ロード中に届いたメッセージは全て破棄
             return Ok(None);
         }
-        match self.common.handle_message(message) {
+        match self.common.handle_message(message, cx) {
             HandleMessageResult::Handled(next) => Ok(next),
             HandleMessageResult::Unhandled(message) => match self.role {
                 RoleState::Loader(_) => unreachable!(),
                 RoleState::Follower(ref mut t) => {
-                    track!(t.handle_message(&mut self.common, message))
+                    track!(t.handle_message(&mut self.common, message, cx))
                 }
                 RoleState::Candidate(ref mut t) => {
-                    track!(t.handle_message(&mut self.common, &message))
+                    track!(t.handle_message(&mut self.common, &message, cx))
                 }
-                RoleState::Leader(ref mut t) => track!(t.handle_message(&mut self.common, message)),
+                RoleState::Leader(ref mut t) => {
+                    track!(t.handle_message(&mut self.common, message, cx))
+                }
             },
         }
     }
@@ -132,7 +144,7 @@ impl<IO: Io> Stream for NodeState<IO> {
                 let _ = track!(result)?;
                 did_something = true;
                 this.metrics.poll_timeout_total.increment();
-                if let Some(next) = track!(this.handle_timeout())? {
+                if let Some(next) = track!(this.handle_timeout(cx))? {
                     this.handle_role_change(next);
                 }
                 if let Some(e) = this.common.next_event() {
@@ -167,7 +179,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             // 受信メッセージ処理
             if let Some(message) = track!(this.common.try_recv_message(cx))? {
                 did_something = true;
-                if let Some(next) = track!(this.handle_message(message))? {
+                if let Some(next) = track!(this.handle_message(message, cx))? {
                     this.handle_role_change(next);
                 }
                 if let Some(e) = this.common.next_event() {
@@ -210,6 +222,7 @@ impl<IO: Io> RoleState<IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::task::noop_waker_ref;
     use prometrics::metrics::MetricBuilder;
 
     use crate::test_util::tests::TestIoBuilder;
@@ -219,7 +232,9 @@ mod tests {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
-        let node = NodeState::load("test".into(), cluster, io, metrics);
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
+        let node = NodeState::load("test".into(), cluster, io, metrics, &mut cx);
         assert!(node.is_loading());
     }
 
@@ -228,8 +243,10 @@ mod tests {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new("test".into(), io, cluster, metrics);
-        let state = RoleState::Loader(Loader::new(&mut common));
+        let state = RoleState::Loader(Loader::new(&mut common, &mut cx));
         assert!(state.is_loader());
         assert!(!state.is_candidate());
     }
@@ -239,8 +256,10 @@ mod tests {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new("test".into(), io, cluster, metrics);
-        let state = RoleState::Candidate(Candidate::new(&mut common));
+        let state = RoleState::Candidate(Candidate::new(&mut common, &mut cx));
         assert!(!state.is_loader());
         assert!(state.is_candidate());
     }

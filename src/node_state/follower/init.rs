@@ -18,8 +18,12 @@ pub struct FollowerInit<IO: Io> {
     pending_vote: Option<MessageHeader>,
 }
 impl<IO: Io> FollowerInit<IO> {
-    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
-        let future = Box::pin(common.save_ballot());
+    pub fn new(
+        common: &mut Common<IO>,
+        pending_vote: Option<MessageHeader>,
+        cx: &mut Context,
+    ) -> Self {
+        let future = Box::pin(common.save_ballot(cx));
         FollowerInit {
             future,
             pending_vote,

@@ -118,24 +118,41 @@ pub mod tests {
 
         fn send_message(self: Pin<&mut Self>, _message: Message) {}
 
-        fn save_ballot(self: Pin<&mut Self>, _ballot: Ballot) -> Self::SaveBallot {
+        fn save_ballot(
+            self: Pin<&mut Self>,
+            _ballot: Ballot,
+            _cx: &mut Context,
+        ) -> Self::SaveBallot {
             NoopSaveBallot
         }
 
-        fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot {
+        fn load_ballot(self: Pin<&mut Self>, _cx: &mut Context) -> Self::LoadBallot {
             let mut ballots = self.ballots.lock().expect("Never fails");
             LoadBallotImpl(ballots.pop())
         }
 
-        fn save_log_prefix(self: Pin<&mut Self>, _prefix: LogPrefix) -> Self::SaveLog {
+        fn save_log_prefix(
+            self: Pin<&mut Self>,
+            _prefix: LogPrefix,
+            _cx: &mut Context,
+        ) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn save_log_suffix(self: Pin<&mut Self>, _suffix: &LogSuffix) -> Self::SaveLog {
+        fn save_log_suffix(
+            self: Pin<&mut Self>,
+            _suffix: &LogSuffix,
+            _cx: &mut Context,
+        ) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn load_log(self: Pin<&mut Self>, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
+        fn load_log(
+            self: Pin<&mut Self>,
+            start: LogIndex,
+            end: Option<LogIndex>,
+            _cx: &mut Context,
+        ) -> Self::LoadLog {
             let mut logs = self.logs.lock().expect("Never fails");
             if let Some(log) = logs.remove(&(start, end)) {
                 match log {

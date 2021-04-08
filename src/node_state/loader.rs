@@ -12,8 +12,8 @@ pub struct Loader<IO: Io> {
     phase: Phase<Pin<Box<IO::LoadBallot>>, Pin<Box<IO::LoadLog>>>,
 }
 impl<IO: Io> Loader<IO> {
-    pub fn new(common: &mut Common<IO>) -> Self {
-        let phase = Phase::A(Box::pin(common.load_ballot()));
+    pub fn new(common: &mut Common<IO>, cx: &mut Context) -> Self {
+        let phase = Phase::A(Box::pin(common.load_ballot(cx)));
         Loader { phase }
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -34,7 +34,7 @@ impl<IO: Io> Loader<IO> {
                     if let Some(ballot) = ballot {
                         common.set_ballot(ballot);
                     }
-                    let future = Box::pin(common.load_log(LogIndex::new(0), None));
+                    let future = Box::pin(common.load_log(LogIndex::new(0), None, cx));
                     Phase::B(future) // => ログ復元へ
                 }
                 Phase::B(log) => {
@@ -49,7 +49,7 @@ impl<IO: Io> Loader<IO> {
                             track!(common.handle_log_snapshot_loaded(prefix))?;
 
                             let suffix_head = common.log().tail().index;
-                            let future = Box::pin(common.load_log(suffix_head, None));
+                            let future = Box::pin(common.load_log(suffix_head, None, cx));
                             Phase::B(future) // => スナップショット以降のログ取得へ
                         }
                         Log::Suffix(suffix) => {
@@ -73,7 +73,7 @@ impl<IO: Io> Loader<IO> {
                             // candidateに遷移するのは`index==0`の場合のみ、とか？
                             // 若干起動時の待ちが増える可能性はあるが、全部follower、として起動する、
                             // というのもありかもしれない.
-                            let next = common.transit_to_candidate();
+                            let next = common.transit_to_candidate(cx);
                             return Ok(Some(next));
                         }
                     }
@@ -129,7 +129,7 @@ mod tests {
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
         let mut common = Common::new(node_id, io, cluster.clone(), metrics);
-        let mut loader = Loader::new(&mut common);
+        let mut loader = Loader::new(&mut common, &mut cx);
 
         // prefix には空の snapshot があり、tail は 1 を指している。
         // suffix には position 1 から 1 エントリが保存されている。
@@ -182,7 +182,7 @@ mod tests {
         let mut handle = io.handle();
         let cluster = io.cluster.clone();
         let mut common = Common::new(node_id, io, cluster.clone(), metrics);
-        let mut loader = Loader::new(&mut common);
+        let mut loader = Loader::new(&mut common, &mut cx);
 
         // 古い term のログが紛れ込んでいるとエラーになる
         let term = Term::new(308);

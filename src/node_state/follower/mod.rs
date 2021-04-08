@@ -33,18 +33,27 @@ pub enum Follower<IO: Io> {
     Snapshot(FollowerSnapshot<IO>),
 }
 impl<IO: Io> Follower<IO> {
-    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
+    pub fn new(
+        common: &mut Common<IO>,
+        pending_vote: Option<MessageHeader>,
+        cx: &mut Context,
+    ) -> Self {
         common.set_timeout(Role::Follower);
-        let follower = FollowerInit::new(common, pending_vote);
+        let follower = FollowerInit::new(common, pending_vote, cx);
         Follower::Init(follower)
     }
-    pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        Ok(Some(common.transit_to_candidate()))
+    pub fn handle_timeout(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context,
+    ) -> Result<NextState<IO>> {
+        Ok(Some(common.transit_to_candidate(cx)))
     }
     pub fn handle_message(
         &mut self,
         common: &mut Common<IO>,
         message: Message,
+        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         if let Message::AppendEntriesCall { .. } = message {
             common.set_timeout(Role::Follower);
@@ -56,7 +65,7 @@ impl<IO: Io> Follower<IO> {
 
         match *self {
             Follower::Init(ref mut t) => track!(t.handle_message(common, message)),
-            Follower::Idle(ref mut t) => track!(t.handle_message(common, message)),
+            Follower::Idle(ref mut t) => track!(t.handle_message(common, message, cx)),
             Follower::Append(ref mut t) => track!(t.handle_message(common, message)),
             Follower::Snapshot(ref mut t) => track!(t.handle_message(common, message)),
         }

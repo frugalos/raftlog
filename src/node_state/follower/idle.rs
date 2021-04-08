@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::task::Context;
 use trackable::error::ErrorKindExt;
 
 use super::super::{Common, NextState, RoleState};
@@ -25,9 +26,10 @@ impl<IO: Io> FollowerIdle<IO> {
         &mut self,
         common: &mut Common<IO>,
         message: Message,
+        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         match message {
-            Message::AppendEntriesCall(m) => track!(self.handle_entries(common, m)),
+            Message::AppendEntriesCall(m) => track!(self.handle_entries(common, m, cx)),
             Message::InstallSnapshotCast(m) => {
                 if m.prefix.tail.index <= common.log_committed_tail().index {
                     // 既にコミット済みの地点のスナップショットは無視する
@@ -40,7 +42,7 @@ impl<IO: Io> FollowerIdle<IO> {
                     // 未コミット地点のスナップショットが送られてきた
                     // => リーダのログに、これ以前のエントリが残っていない可能性が
                     //    高いので、ローカルログにインストール必要がある
-                    track!(common.install_snapshot(m.prefix))?;
+                    track!(common.install_snapshot(m.prefix, cx))?;
                     let next = FollowerSnapshot::new();
                     Ok(Some(RoleState::Follower(Follower::Snapshot(next))))
                 }
@@ -53,6 +55,7 @@ impl<IO: Io> FollowerIdle<IO> {
         &mut self,
         common: &mut Common<IO>,
         mut message: AppendEntriesCall,
+        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         // `AppendEntriesCall`で受け取ったエントリ群が、ローカルログの末尾に追記可能になるように調整する
 
@@ -80,13 +83,14 @@ impl<IO: Io> FollowerIdle<IO> {
             Ok(None)
         } else {
             // リーダのログとローカルのログに重複部分があり、追記が行える可能性が高い
-            track!(self.handle_non_disjoint_entries(common, message))
+            track!(self.handle_non_disjoint_entries(common, message, cx))
         }
     }
     fn handle_non_disjoint_entries(
         &mut self,
         common: &mut Common<IO>,
         mut message: AppendEntriesCall,
+        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         // リーダとローカルのログの共通部分を探索
         let (matched, lcp) = track!(self.longest_common_prefix(common, &message.suffix))?;
@@ -102,7 +106,7 @@ impl<IO: Io> FollowerIdle<IO> {
         } else {
             // 両者は包含関係にあるので、追記が可能
             track!(message.suffix.skip_to(lcp.index))?;
-            let next = FollowerAppend::new(common, message);
+            let next = FollowerAppend::new(common, message, cx);
             Ok(Some(RoleState::Follower(Follower::Append(next))))
         }
     }
