@@ -25,7 +25,7 @@ pub struct FollowersManager<IO: Io> {
 
     // `raft_test_simu`のために非決定的な要素は排除したいので、
     // `HashMap`ではなく`BTreeMap`を使用している.
-    tasks: BTreeMap<NodeId, IO::LoadLog>,
+    tasks: BTreeMap<NodeId, Pin<Box<IO::LoadLog>>>,
 }
 impl<IO: Io> FollowersManager<IO> {
     pub fn new(config: ClusterConfig) -> Self {
@@ -146,7 +146,8 @@ impl<IO: Io> FollowersManager<IO> {
             follower.log_tail
         };
         let future = common.load_log(follower.log_tail, Some(end));
-        self.tasks.insert(reply.header.sender.clone(), future);
+        self.tasks
+            .insert(reply.header.sender.clone(), Box::pin(future));
         Ok(())
     }
 

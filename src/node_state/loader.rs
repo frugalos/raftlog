@@ -9,11 +9,11 @@ use crate::{Io, Result};
 
 /// ノード起動時に、前回の状況を復元(ロード)を行う.
 pub struct Loader<IO: Io + Unpin> {
-    phase: Phase<IO::LoadBallot, IO::LoadLog>,
+    phase: Phase<Pin<Box<IO::LoadBallot>>, Pin<Box<IO::LoadLog>>>,
 }
 impl<IO: Io + Unpin> Loader<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
-        let phase = Phase::A(common.load_ballot());
+        let phase = Phase::A(Box::pin(common.load_ballot()));
         Loader { phase }
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -34,7 +34,7 @@ impl<IO: Io + Unpin> Loader<IO> {
                     if let Some(ballot) = ballot {
                         common.set_ballot(ballot);
                     }
-                    let future = common.load_log(LogIndex::new(0), None);
+                    let future = Box::pin(common.load_log(LogIndex::new(0), None));
                     Phase::B(future) // => ログ復元へ
                 }
                 Phase::B(log) => {
@@ -49,7 +49,7 @@ impl<IO: Io + Unpin> Loader<IO> {
                             track!(common.handle_log_snapshot_loaded(prefix))?;
 
                             let suffix_head = common.log().tail().index;
-                            let future = common.load_log(suffix_head, None);
+                            let future = Box::pin(common.load_log(suffix_head, None));
                             Phase::B(future) // => スナップショット以降のログ取得へ
                         }
                         Log::Suffix(suffix) => {

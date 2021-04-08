@@ -20,12 +20,12 @@ use crate::{Io, Result};
 /// - 3-b. タイムアウトに達したら、次の選挙を開始して再び立候補
 pub struct Candidate<IO: Io> {
     followers: HashSet<NodeId>,
-    init: Option<IO::SaveBallot>,
+    init: Option<Pin<Box<IO::SaveBallot>>>,
 }
 impl<IO: Io + Unpin> Candidate<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Candidate);
-        let future = common.save_ballot();
+        let future = Box::pin(common.save_ballot());
         Candidate {
             init: Some(future),
             followers: HashSet::new(),

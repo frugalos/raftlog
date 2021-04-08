@@ -14,7 +14,7 @@ use crate::{Io, Result};
 /// ストレージへの追記中に新たな追加要求が発行された場合には、
 /// 新規分はそのバッファに積まれていく.
 pub struct LogAppender<IO: Io> {
-    task: Option<IO::SaveLog>,
+    task: Option<Pin<Box<IO::SaveLog>>>,
     in_progress: Option<LogSuffix>,
     pendings: Vec<LogEntry>,
 }
@@ -33,7 +33,7 @@ impl<IO: Io> LogAppender<IO> {
         if self.task.is_none() {
             let head = common.log().tail();
             let suffix = LogSuffix { head, entries };
-            self.task = Some(common.save_log_suffix(&suffix));
+            self.task = Some(Box::pin(common.save_log_suffix(&suffix)));
             self.in_progress = Some(suffix);
         } else {
             self.pendings.extend(entries)

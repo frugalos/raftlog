@@ -17,7 +17,7 @@ use crate::{Io, Result};
 /// 細かい調整処理は`FollowerIdle`内で行われ、
 /// ここが担当するのは、あくまでもログ追記処理のみ.
 pub struct FollowerAppend<IO: Io> {
-    future: Option<IO::SaveLog>,
+    future: Option<Pin<Box<IO::SaveLog>>>,
     new_log_tail: LogPosition,
     message: AppendEntriesCall,
 }
@@ -41,7 +41,7 @@ impl<IO: Io> FollowerAppend<IO> {
             // (AppendEntriesCallは、単にハートビートの用途でも使用されるので、空のケースは珍しくない)
             None
         } else {
-            Some(common.save_log_suffix(&message.suffix))
+            Some(Box::pin(common.save_log_suffix(&message.suffix)))
         };
         FollowerAppend {
             future,

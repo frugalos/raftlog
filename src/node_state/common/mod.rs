@@ -23,12 +23,12 @@ mod rpc_builder;
 pub struct Common<IO: Io> {
     local_node: Node,
     history: LogHistory,
-    timeout: IO::Timeout,
+    timeout: Pin<Box<IO::Timeout>>,
     events: VecDeque<Event>,
     io: IO,
     unread_message: Option<Message>,
     seq_no: SequenceNumber,
-    load_committed: Option<IO::LoadLog>,
+    load_committed: Option<Pin<Box<IO::LoadLog>>>,
     install_snapshot: Option<InstallSnapshot<IO>>,
     metrics: NodeStateMetrics,
 }
@@ -51,7 +51,7 @@ where
             history: LogHistory::new(config),
             unread_message: None,
             seq_no: SequenceNumber::new(0),
-            timeout,
+            timeout: Box::pin(timeout),
             events: VecDeque::new(),
             load_committed: None,
             install_snapshot: None,
@@ -258,7 +258,7 @@ where
 
     /// 指定されたロール用のタイムアウトを設定する.
     pub fn set_timeout(&mut self, role: Role) {
-        self.timeout = self.io.create_timeout(role);
+        self.timeout = Box::pin(self.io.create_timeout(role));
     }
 
     /// タイムアウトに達していないかを確認する.
@@ -403,7 +403,7 @@ where
 
             let start = self.history.consumed_tail().index;
             let end = self.history.committed_tail().index;
-            self.load_committed = Some(self.load_log(start, Some(end)));
+            self.load_committed = Some(Box::pin(self.load_log(start, Some(end))));
         }
         Ok(None)
     }
@@ -457,7 +457,7 @@ struct SnapshotSummary {
 }
 
 struct InstallSnapshot<IO: Io> {
-    future: IO::SaveLog,
+    future: Pin<Box<IO::SaveLog>>,
     summary: SnapshotSummary,
 }
 impl<IO: Io> InstallSnapshot<IO> {
@@ -466,7 +466,7 @@ impl<IO: Io> InstallSnapshot<IO> {
             tail: prefix.tail,
             config: prefix.config.clone(),
         };
-        let future = common.io.save_log_prefix(prefix);
+        let future = Box::pin(common.io.save_log_prefix(prefix));
         InstallSnapshot { future, summary }
     }
 }

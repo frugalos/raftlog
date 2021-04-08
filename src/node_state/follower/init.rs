@@ -14,12 +14,12 @@ use crate::{Io, Result};
 /// - 1. 投票状況を保存
 /// - 2. もし保存処理中に投票先から`RequestVoteCall`を受信したら、保存後にそれに返答(投票)
 pub struct FollowerInit<IO: Io> {
-    future: IO::SaveBallot,
+    future: Pin<Box<IO::SaveBallot>>,
     pending_vote: Option<MessageHeader>,
 }
 impl<IO: Io> FollowerInit<IO> {
     pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
-        let future = common.save_ballot();
+        let future = Box::pin(common.save_ballot());
         FollowerInit {
             future,
             pending_vote,

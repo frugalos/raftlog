@@ -23,19 +23,19 @@ use crate::Result;
 ///   - タイムアウト管理用のタイマー
 pub trait Io: Unpin {
     /// ローカルノードの投票状況を保存するための`Future`.
-    type SaveBallot: Future<Output = Result<()>> + Unpin;
+    type SaveBallot: Future<Output = Result<()>>;
 
     /// ノーカルノードの投票情報を取得ための`Future`.
-    type LoadBallot: Future<Output = Result<Option<Ballot>>> + Unpin;
+    type LoadBallot: Future<Output = Result<Option<Ballot>>>;
 
     /// ローカルログを保存するための`Future`.
-    type SaveLog: Future<Output = Result<()>> + Unpin;
+    type SaveLog: Future<Output = Result<()>>;
 
     /// ローカルログを取得するための`Future`.
-    type LoadLog: Future<Output = Result<Log>> + Unpin;
+    type LoadLog: Future<Output = Result<Log>>;
 
     /// タイムアウトを表現するための`Future`.
-    type Timeout: Future<Output = Result<()>> + Unpin;
+    type Timeout: Future<Output = Result<()>>;
 
     /// ローカルノードに対して送信されたメッセージの受信を試みる.
     ///
