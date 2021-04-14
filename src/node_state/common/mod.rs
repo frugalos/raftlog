@@ -170,15 +170,15 @@ where
     }
 
     /// `Leader`状態に遷移する.
-    pub fn transit_to_leader(&mut self, cx: &mut Context) -> RoleState<IO> {
+    pub fn transit_to_leader(&mut self) -> RoleState<IO> {
         self.metrics.transit_to_leader_total.increment();
         self.set_role(Role::Leader);
         self.notify_new_leader_elected();
-        RoleState::Leader(Leader::new(self, cx))
+        RoleState::Leader(Leader::new(self))
     }
 
     /// `Candidate`状態に遷移する.
-    pub fn transit_to_candidate(&mut self, cx: &mut Context) -> RoleState<IO> {
+    pub fn transit_to_candidate(&mut self) -> RoleState<IO> {
         self.metrics.transit_to_candidate_total.increment();
         let new_ballot = Ballot {
             term: (self.local_node.ballot.term.as_u64() + 1).into(),
@@ -186,7 +186,7 @@ where
         };
         self.set_ballot(new_ballot);
         self.set_role(Role::Candidate);
-        RoleState::Candidate(Candidate::new(self, cx))
+        RoleState::Candidate(Candidate::new(self))
     }
 
     /// `Follower`状態に遷移する.
@@ -194,7 +194,6 @@ where
         &mut self,
         followee: NodeId,
         pending_vote: Option<MessageHeader>,
-        cx: &mut Context,
     ) -> RoleState<IO> {
         self.metrics.transit_to_follower_total.increment();
         let new_ballot = Ballot {
@@ -204,7 +203,7 @@ where
         self.set_ballot(new_ballot);
         self.set_role(Role::Follower);
         self.notify_new_leader_elected();
-        RoleState::Follower(Follower::new(self, pending_vote, cx))
+        RoleState::Follower(Follower::new(self, pending_vote))
     }
 
     /// 新しいリーダーが選出されたことを通知する.
@@ -238,26 +237,25 @@ where
         &mut self,
         start: LogIndex,
         end: Option<LogIndex>,
-        cx: &mut Context,
     ) -> IO::LoadLog {
-        self.io.as_mut().load_log(start, end, cx)
+        self.io.as_mut().load_log(start, end)
     }
 
     /// ローカルログの末尾部分に`suffix`を追記する.
-    pub fn save_log_suffix(&mut self, suffix: &LogSuffix, cx: &mut Context) -> IO::SaveLog {
-        self.io.as_mut().save_log_suffix(suffix, cx)
+    pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
+        self.io.as_mut().save_log_suffix(suffix)
     }
 
     /// 現在の投票状況を保存する.
-    pub fn save_ballot(&mut self, cx: &mut Context) -> IO::SaveBallot {
+    pub fn save_ballot(&mut self) -> IO::SaveBallot {
         self.io
             .as_mut()
-            .save_ballot(self.local_node.ballot.clone(), cx)
+            .save_ballot(self.local_node.ballot.clone())
     }
 
     /// 以前の投票状況を復元する.
-    pub fn load_ballot(&mut self, cx: &mut Context) -> IO::LoadBallot {
-        self.io.as_mut().load_ballot(cx)
+    pub fn load_ballot(&mut self) -> IO::LoadBallot {
+        self.io.as_mut().load_ballot()
     }
 
     /// 指定されたロール用のタイムアウトを設定する.
@@ -286,14 +284,14 @@ where
     }
 
     /// ローカルログのスナップショットのインストールを開始する.
-    pub fn install_snapshot(&mut self, snapshot: LogPrefix, cx: &mut Context) -> Result<()> {
+    pub fn install_snapshot(&mut self, snapshot: LogPrefix) -> Result<()> {
         track_assert!(
             self.history.head().index <= snapshot.tail.index,
             ErrorKind::InconsistentState
         );
         track_assert!(self.install_snapshot.is_none(), ErrorKind::Busy);
 
-        let future = InstallSnapshot::new(self, snapshot, cx);
+        let future = InstallSnapshot::new(self, snapshot);
         self.install_snapshot = Some(future);
         Ok(())
     }
@@ -302,7 +300,6 @@ where
     pub fn handle_message(
         &mut self,
         message: Message,
-        cx: &mut Context,
     ) -> HandleMessageResult<IO> {
         if self.local_node.role == Role::Leader
             && !self.config().is_known_node(&message.header().sender)
@@ -331,21 +328,21 @@ where
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
                     // 送信者(候補者)のログは十分に新しいので、その人を支持する
                     let candidate = m.header.sender.clone();
-                    self.transit_to_follower(candidate, Some(m.header), cx)
+                    self.transit_to_follower(candidate, Some(m.header))
                 } else {
                     // ローカルログの方が新しいので、自分で立候補する
-                    self.transit_to_candidate(cx)
+                    self.transit_to_candidate()
                 }
             } else if let Message::AppendEntriesCall { .. } = message {
                 // 新リーダが当選していたので、その人のフォロワーとなる
                 let leader = message.header().sender.clone();
                 self.unread_message = Some(message);
-                self.transit_to_follower(leader, None, cx)
+                self.transit_to_follower(leader, None)
             } else if self.local_node.role == Role::Leader {
-                self.transit_to_candidate(cx)
+                self.transit_to_candidate()
             } else {
                 let local = self.local_node.id.clone();
-                self.transit_to_follower(local, None, cx)
+                self.transit_to_follower(local, None)
             };
             HandleMessageResult::Handled(Some(next_state))
         } else if message.header().term < self.local_node.ballot.term {
@@ -366,7 +363,7 @@ where
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
-                    let next = self.transit_to_follower(leader, None, cx);
+                    let next = self.transit_to_follower(leader, None);
                     HandleMessageResult::Handled(Some(next))
                 }
                 _ => HandleMessageResult::Unhandled(message), // 個別のロールに処理を任せる
@@ -411,7 +408,7 @@ where
 
             let start = self.history.consumed_tail().index;
             let end = self.history.committed_tail().index;
-            self.load_committed = Some(Box::pin(self.load_log(start, Some(end), cx)));
+            self.load_committed = Some(Box::pin(self.load_log(start, Some(end))));
         }
         Ok(None)
     }
@@ -469,12 +466,12 @@ struct InstallSnapshot<IO: Io> {
     summary: SnapshotSummary,
 }
 impl<IO: Io> InstallSnapshot<IO> {
-    pub fn new(common: &mut Common<IO>, prefix: LogPrefix, cx: &mut Context) -> Self {
+    pub fn new(common: &mut Common<IO>, prefix: LogPrefix) -> Self {
         let summary = SnapshotSummary {
             tail: prefix.tail,
             config: prefix.config.clone(),
         };
-        let future = Box::pin(common.io.as_mut().save_log_prefix(prefix, cx));
+        let future = Box::pin(common.io.as_mut().save_log_prefix(prefix));
         InstallSnapshot { future, summary }
     }
 }
@@ -520,7 +517,7 @@ mod tests {
         };
 
         assert!(!common.is_snapshot_installing());
-        common.install_snapshot(prefix, &mut cx)?;
+        common.install_snapshot(prefix)?;
         assert!(common.is_snapshot_installing());
 
         Ok(())
@@ -581,7 +578,7 @@ mod tests {
         assert!(!common.is_focusing_on_installing_snapshot());
         // Applies a prefix before tests.
         common.handle_log_snapshot_loaded(node_prefix)?;
-        common.install_snapshot(leader_prefix, &mut cx)?;
+        common.install_snapshot(leader_prefix)?;
         // The node is installing a snapshot and focusing on the installation.
         assert!(common.is_focusing_on_installing_snapshot());
         // Appends new log entries.

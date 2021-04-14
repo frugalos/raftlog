@@ -12,8 +12,8 @@ pub struct Loader<IO: Io> {
     phase: Phase<Pin<Box<IO::LoadBallot>>, Pin<Box<IO::LoadLog>>>,
 }
 impl<IO: Io> Loader<IO> {
-    pub fn new(common: &mut Common<IO>, cx: &mut Context) -> Self {
-        let phase = Phase::A(Box::pin(common.load_ballot(cx)));
+    pub fn new(common: &mut Common<IO>) -> Self {
+        let phase = Phase::A(Box::pin(common.load_ballot()));
         Loader { phase }
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -34,7 +34,7 @@ impl<IO: Io> Loader<IO> {
                     if let Some(ballot) = ballot {
                         common.set_ballot(ballot);
                     }
-                    let future = Box::pin(common.load_log(LogIndex::new(0), None, cx));
+                    let future = Box::pin(common.load_log(LogIndex::new(0), None));
                     Phase::B(future) // => ログ復元へ
                 }
                 Phase::B(log) => {
@@ -49,7 +49,7 @@ impl<IO: Io> Loader<IO> {
                             track!(common.handle_log_snapshot_loaded(prefix))?;
 
                             let suffix_head = common.log().tail().index;
-                            let future = Box::pin(common.load_log(suffix_head, None, cx));
+                            let future = Box::pin(common.load_log(suffix_head, None));
                             Phase::B(future) // => スナップショット以降のログ取得へ
                         }
                         Log::Suffix(suffix) => {
@@ -73,7 +73,7 @@ impl<IO: Io> Loader<IO> {
                             // candidateに遷移するのは`index==0`の場合のみ、とか？
                             // 若干起動時の待ちが増える可能性はあるが、全部follower、として起動する、
                             // というのもありかもしれない.
-                            let next = common.transit_to_candidate(cx);
+                            let next = common.transit_to_candidate();
                             return Ok(Some(next));
                         }
                     }

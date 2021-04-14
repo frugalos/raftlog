@@ -121,12 +121,11 @@ pub mod tests {
         fn save_ballot(
             self: Pin<&mut Self>,
             _ballot: Ballot,
-            _cx: &mut Context,
         ) -> Self::SaveBallot {
             NoopSaveBallot
         }
 
-        fn load_ballot(self: Pin<&mut Self>, _cx: &mut Context) -> Self::LoadBallot {
+        fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot {
             let mut ballots = self.ballots.lock().expect("Never fails");
             LoadBallotImpl(ballots.pop())
         }
@@ -134,7 +133,6 @@ pub mod tests {
         fn save_log_prefix(
             self: Pin<&mut Self>,
             _prefix: LogPrefix,
-            _cx: &mut Context,
         ) -> Self::SaveLog {
             NoopSaveLog
         }
@@ -142,7 +140,6 @@ pub mod tests {
         fn save_log_suffix(
             self: Pin<&mut Self>,
             _suffix: &LogSuffix,
-            _cx: &mut Context,
         ) -> Self::SaveLog {
             NoopSaveLog
         }
@@ -151,7 +148,6 @@ pub mod tests {
             self: Pin<&mut Self>,
             start: LogIndex,
             end: Option<LogIndex>,
-            _cx: &mut Context,
         ) -> Self::LoadLog {
             let mut logs = self.logs.lock().expect("Never fails");
             if let Some(log) = logs.remove(&(start, end)) {

@@ -54,14 +54,13 @@ impl<IO: Io> ReplicatedLog<IO> {
         node_id: NodeId,
         members: ClusterMembers,
         io: IO,
-        metric_builder: &MetricBuilder,
-        cx: &mut Context,
+        metric_builder: &MetricBuilder
     ) -> Result<Self> {
         let config = ClusterConfig::new(members);
         let mut metric_builder = metric_builder.clone();
         metric_builder.namespace("raftlog");
         let metrics = track!(RaftlogMetrics::new(&metric_builder))?;
-        let node = NodeState::load(node_id, config, io, metrics.node_state.clone(), cx);
+        let node = NodeState::load(node_id, config, io, metrics.node_state.clone());
         Ok(ReplicatedLog {
             node,
             metrics: Arc::new(metrics),
@@ -85,11 +84,11 @@ impl<IO: Io> ReplicatedLog<IO> {
     ///
     /// 非リーダノードに対して、このメソッドが実行された場合には、
     /// `ErrorKind::NotLeader`を理由としたエラーが返される.
-    pub fn propose_command(&mut self, command: Vec<u8>, cx: &mut Context) -> Result<ProposalId> {
+    pub fn propose_command(&mut self, command: Vec<u8>) -> Result<ProposalId> {
         if let RoleState::Leader(ref mut leader) = self.node.role {
             let term = self.node.common.term();
             let entry = LogEntry::Command { term, command };
-            let proposal_id = leader.propose(&mut self.node.common, entry, cx);
+            let proposal_id = leader.propose(&mut self.node.common, entry);
             Ok(proposal_id)
         } else {
             track_panic!(ErrorKind::NotLeader)
@@ -117,13 +116,12 @@ impl<IO: Io> ReplicatedLog<IO> {
     pub fn propose_config(
         &mut self,
         new_members: ClusterMembers,
-        cx: &mut Context,
     ) -> Result<ProposalId> {
         if let RoleState::Leader(ref mut leader) = self.node.role {
             let config = self.node.common.config().start_config_change(new_members);
             let term = self.node.common.term();
             let entry = LogEntry::Config { term, config };
-            let proposal_id = leader.propose(&mut self.node.common, entry, cx);
+            let proposal_id = leader.propose(&mut self.node.common, entry);
             Ok(proposal_id)
         } else {
             track_panic!(ErrorKind::NotLeader)
@@ -174,7 +172,6 @@ impl<IO: Io> ReplicatedLog<IO> {
         &mut self,
         new_head: LogIndex,
         snapshot: Vec<u8>,
-        cx: &mut Context,
     ) -> Result<()> {
         track_assert!(
             !self.node.is_loading(),
@@ -204,15 +201,15 @@ impl<IO: Io> ReplicatedLog<IO> {
             config,
             snapshot,
         };
-        track!(self.node.common.install_snapshot(prefix, cx))?;
+        track!(self.node.common.install_snapshot(prefix))?;
         Ok(())
     }
 
     /// 新しい選挙を開始する.
     ///
     /// 何らかの手段で現在のリーダのダウンを検知した場合に呼び出される.
-    pub fn start_election(&mut self, cx: &mut Context) {
-        self.node.start_election(cx);
+    pub fn start_election(&mut self) {
+        self.node.start_election();
     }
 
     /// ローカルノードの情報を返す.

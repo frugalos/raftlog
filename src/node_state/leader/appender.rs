@@ -29,11 +29,11 @@ impl<IO: Io> LogAppender<IO> {
     pub fn is_busy(&self) -> bool {
         self.in_progress.is_some()
     }
-    pub fn append(&mut self, common: &mut Common<IO>, entries: Vec<LogEntry>, cx: &mut Context) {
+    pub fn append(&mut self, common: &mut Common<IO>, entries: Vec<LogEntry>) {
         if self.task.is_none() {
             let head = common.log().tail();
             let suffix = LogSuffix { head, entries };
-            self.task = Some(Box::pin(common.save_log_suffix(&suffix, cx)));
+            self.task = Some(Box::pin(common.save_log_suffix(&suffix)));
             self.in_progress = Some(suffix);
         } else {
             self.pendings.extend(entries)
@@ -53,7 +53,7 @@ impl<IO: Io> LogAppender<IO> {
 
             let pendings = mem::replace(&mut self.pendings, Vec::new());
             if !pendings.is_empty() {
-                self.append(common, pendings, cx);
+                self.append(common, pendings);
             }
             Ok(Some(suffix))
         } else {

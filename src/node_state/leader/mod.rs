@@ -30,7 +30,7 @@ pub struct Leader<IO: Io> {
     commit_lower_bound: LogIndex,
 }
 impl<IO: Io> Leader<IO> {
-    pub fn new(common: &mut Common<IO>, cx: &mut Context) -> Self {
+    pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Leader);
         let term_start_index = common.log().tail().index;
         let followers = FollowersManager::new(common.config().clone());
@@ -41,7 +41,7 @@ impl<IO: Io> Leader<IO> {
         let noop = LogEntry::Noop {
             term: common.term(),
         };
-        appender.append(common, vec![noop], cx);
+        appender.append(common, vec![noop]);
 
         Leader {
             followers,
@@ -57,12 +57,11 @@ impl<IO: Io> Leader<IO> {
         &mut self,
         common: &mut Common<IO>,
         message: Message,
-        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         if let Message::AppendEntriesReply(reply) = message {
             let updated = self.followers.handle_append_entries_reply(&common, &reply);
 
-            track!(self.followers.log_sync(common, &reply, cx))?;
+            track!(self.followers.log_sync(common, &reply))?;
 
             if updated {
                 track!(self.handle_committed_log(common))?;
@@ -105,7 +104,7 @@ impl<IO: Io> Leader<IO> {
             }
             self.broadcast_slice(common, appended);
         }
-        track!(self.handle_change_config(common, cx))?;
+        track!(self.handle_change_config(common))?;
         track!(self.followers.run_once(common, cx))?;
         Ok(None)
     }
@@ -113,10 +112,9 @@ impl<IO: Io> Leader<IO> {
         &mut self,
         common: &mut Common<IO>,
         entry: LogEntry,
-        cx: &mut Context,
     ) -> ProposalId {
         let proposal_id = self.next_proposal_id(common);
-        self.appender.append(common, vec![entry], cx);
+        self.appender.append(common, vec![entry]);
         proposal_id
     }
     pub fn heartbeat_syn(&mut self, common: &mut Common<IO>) -> SequenceNumber {
@@ -131,7 +129,7 @@ impl<IO: Io> Leader<IO> {
         self.followers.latest_hearbeat_ack()
     }
 
-    fn handle_change_config(&mut self, common: &mut Common<IO>, cx: &mut Context) -> Result<()> {
+    fn handle_change_config(&mut self, common: &mut Common<IO>) -> Result<()> {
         if common.config().state().is_stable() {
             return Ok(());
         }
@@ -154,7 +152,7 @@ impl<IO: Io> Leader<IO> {
             let term = common.term();
             let config = common.config().to_next_state();
             let entry = LogEntry::Config { term, config };
-            self.propose(common, entry, cx);
+            self.propose(common, entry);
         }
         Ok(())
     }

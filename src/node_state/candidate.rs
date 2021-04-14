@@ -23,9 +23,9 @@ pub struct Candidate<IO: Io> {
     init: Option<Pin<Box<IO::SaveBallot>>>,
 }
 impl<IO: Io> Candidate<IO> {
-    pub fn new(common: &mut Common<IO>, cx: &mut Context) -> Self {
+    pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Candidate);
-        let future = Box::pin(common.save_ballot(cx));
+        let future = Box::pin(common.save_ballot());
         Candidate {
             init: Some(future),
             followers: HashSet::new(),
@@ -34,15 +34,13 @@ impl<IO: Io> Candidate<IO> {
     pub fn handle_timeout(
         &mut self,
         common: &mut Common<IO>,
-        cx: &mut Context,
     ) -> Result<NextState<IO>> {
-        Ok(Some(common.transit_to_candidate(cx)))
+        Ok(Some(common.transit_to_candidate()))
     }
     pub fn handle_message(
         &mut self,
         common: &mut Common<IO>,
         message: &Message,
-        cx: &mut Context,
     ) -> Result<NextState<IO>> {
         if let Message::RequestVoteReply(RequestVoteReply { voted: true, .. }) = message {
             self.followers.insert(message.header().sender.clone());
@@ -50,7 +48,7 @@ impl<IO: Io> Candidate<IO> {
                 .config()
                 .consensus_value(|n| self.followers.contains(n));
             if is_elected {
-                return Ok(Some(common.transit_to_leader(cx)));
+                return Ok(Some(common.transit_to_leader()));
             }
         }
         Ok(None)

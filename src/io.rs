@@ -56,22 +56,22 @@ pub trait Io {
     fn send_message(self: Pin<&mut Self>, message: Message);
 
     /// ローカルノードの投票状況を保存する.
-    fn save_ballot(self: Pin<&mut Self>, ballot: Ballot, cx: &mut Context) -> Self::SaveBallot;
+    fn save_ballot(self: Pin<&mut Self>, ballot: Ballot) -> Self::SaveBallot;
 
     /// ローカルノードの前回の投票状況を取得する.
-    fn load_ballot(self: Pin<&mut Self>, cx: &mut Context) -> Self::LoadBallot;
+    fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot;
 
     /// ローカルログの前半部分(i.e., スナップショット)を保存する.
     ///
     /// 保存に成功した場合は、それ以前のログ領域は破棄してしまって構わない.
-    fn save_log_prefix(self: Pin<&mut Self>, prefix: LogPrefix, cx: &mut Context) -> Self::SaveLog;
+    fn save_log_prefix(self: Pin<&mut Self>, prefix: LogPrefix) -> Self::SaveLog;
 
     /// ローカルログの末尾部分を保存(追記)する.
     ///
     /// `suffix`の開始位置が、現在のログの末尾よりも前方の場合は、
     /// 新しい開始位置よりも後ろの古いエントリは削除してしまって構わない.
     /// (リーダの入れ替えにより、ログの未コミット部分で競合が発生したことを示している)
-    fn save_log_suffix(self: Pin<&mut Self>, suffix: &LogSuffix, cx: &mut Context)
+    fn save_log_suffix(self: Pin<&mut Self>, suffix: &LogSuffix)
         -> Self::SaveLog;
 
     /// ローカルログの指定範囲のエントリを取得する.
@@ -87,8 +87,7 @@ pub trait Io {
     fn load_log(
         self: Pin<&mut Self>,
         start: LogIndex,
-        end: Option<LogIndex>,
-        cx: &mut Context,
+        end: Option<LogIndex>
     ) -> Self::LoadLog;
 
     /// 選挙における役割に応じた時間のタイムアウトオブジェクトを生成する.

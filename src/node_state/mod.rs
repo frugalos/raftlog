@@ -39,11 +39,10 @@ impl<IO: Io> NodeState<IO> {
         node_id: NodeId,
         config: ClusterConfig,
         io: IO,
-        metrics: NodeStateMetrics,
-        cx: &mut Context,
+        metrics: NodeStateMetrics
     ) -> Self {
         let mut common = Common::new(node_id, io, config, metrics.clone());
-        let role = RoleState::Loader(Loader::new(&mut common, cx));
+        let role = RoleState::Loader(Loader::new(&mut common));
         let started_at = Instant::now();
         NodeState {
             common,
@@ -55,41 +54,40 @@ impl<IO: Io> NodeState<IO> {
     pub fn is_loading(&self) -> bool {
         self.role.is_loader()
     }
-    pub fn start_election(&mut self, cx: &mut Context) {
+    pub fn start_election(&mut self) {
         if let RoleState::Follower(_) = self.role {
-            let next = self.common.transit_to_candidate(cx);
+            let next = self.common.transit_to_candidate();
             self.handle_role_change(next);
         }
     }
-    fn handle_timeout(&mut self, cx: &mut Context) -> Result<Option<RoleState<IO>>> {
+    fn handle_timeout(&mut self) -> Result<Option<RoleState<IO>>> {
         match self.role {
             RoleState::Loader(ref mut t) => track!(t.handle_timeout(&mut self.common)),
-            RoleState::Follower(ref mut t) => track!(t.handle_timeout(&mut self.common, cx)),
-            RoleState::Candidate(ref mut t) => track!(t.handle_timeout(&mut self.common, cx)),
+            RoleState::Follower(ref mut t) => track!(t.handle_timeout(&mut self.common)),
+            RoleState::Candidate(ref mut t) => track!(t.handle_timeout(&mut self.common)),
             RoleState::Leader(ref mut t) => track!(t.handle_timeout(&mut self.common)),
         }
     }
     fn handle_message(
         &mut self,
         message: Message,
-        cx: &mut Context,
     ) -> Result<Option<RoleState<IO>>> {
         if let RoleState::Loader(_) = self.role {
             // ロード中に届いたメッセージは全て破棄
             return Ok(None);
         }
-        match self.common.handle_message(message, cx) {
+        match self.common.handle_message(message) {
             HandleMessageResult::Handled(next) => Ok(next),
             HandleMessageResult::Unhandled(message) => match self.role {
                 RoleState::Loader(_) => unreachable!(),
                 RoleState::Follower(ref mut t) => {
-                    track!(t.handle_message(&mut self.common, message, cx))
+                    track!(t.handle_message(&mut self.common, message))
                 }
                 RoleState::Candidate(ref mut t) => {
-                    track!(t.handle_message(&mut self.common, &message, cx))
+                    track!(t.handle_message(&mut self.common, &message))
                 }
                 RoleState::Leader(ref mut t) => {
-                    track!(t.handle_message(&mut self.common, message, cx))
+                    track!(t.handle_message(&mut self.common, message))
                 }
             },
         }
@@ -144,7 +142,7 @@ impl<IO: Io> Stream for NodeState<IO> {
                 let _ = track!(result)?;
                 did_something = true;
                 this.metrics.poll_timeout_total.increment();
-                if let Some(next) = track!(this.handle_timeout(cx))? {
+                if let Some(next) = track!(this.handle_timeout())? {
                     this.handle_role_change(next);
                 }
                 if let Some(e) = this.common.next_event() {
@@ -179,7 +177,7 @@ impl<IO: Io> Stream for NodeState<IO> {
             // 受信メッセージ処理
             if let Some(message) = track!(this.common.try_recv_message(cx))? {
                 did_something = true;
-                if let Some(next) = track!(this.handle_message(message, cx))? {
+                if let Some(next) = track!(this.handle_message(message))? {
                     this.handle_role_change(next);
                 }
                 if let Some(e) = this.common.next_event() {
@@ -234,7 +232,7 @@ mod tests {
         let cluster = io.cluster.clone();
         let waker = noop_waker_ref();
         let mut cx = Context::from_waker(waker);
-        let node = NodeState::load("test".into(), cluster, io, metrics, &mut cx);
+        let node = NodeState::load("test".into(), cluster, io, metrics);
         assert!(node.is_loading());
     }
 
