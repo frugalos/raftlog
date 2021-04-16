@@ -1,4 +1,7 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::FutureExt;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
@@ -14,7 +17,7 @@ use crate::{Io, Result};
 /// 細かい調整処理は`FollowerIdle`内で行われ、
 /// ここが担当するのは、あくまでもログ追記処理のみ.
 pub struct FollowerAppend<IO: Io> {
-    future: Option<IO::SaveLog>,
+    future: Option<Pin<Box<IO::SaveLog>>>,
     new_log_tail: LogPosition,
     message: AppendEntriesCall,
 }
@@ -38,7 +41,7 @@ impl<IO: Io> FollowerAppend<IO> {
             // (AppendEntriesCallは、単にハートビートの用途でも使用されるので、空のケースは珍しくない)
             None
         } else {
-            Some(common.save_log_suffix(&message.suffix))
+            Some(Box::pin(common.save_log_suffix(&message.suffix)))
         };
         FollowerAppend {
             future,
@@ -56,8 +59,14 @@ impl<IO: Io> FollowerAppend<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        if let Async::Ready(_) = track!(self.future.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        let mut future: OptionFuture<_> = self.future.as_mut().into();
+        if let Poll::Ready(result) = track!(future.poll_unpin(cx)) {
+            let _ = track!(result);
             if self.new_log_tail == self.message.suffix.tail() {
                 track!(common.handle_log_appended(&self.message.suffix))?;
             }

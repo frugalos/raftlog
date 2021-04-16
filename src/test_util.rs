@@ -1,11 +1,13 @@
 //! テスト用のユーティリティ群。
 #[cfg(test)]
 pub mod tests {
-    use fibers::time::timer;
-    use futures::{Async, Future, Poll};
+    use futures::Future;
     use std::collections::{BTreeSet, HashMap};
+    use std::pin::Pin;
     use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll};
     use std::time::Duration;
+    use tokio::time::{sleep, Sleep};
     use trackable::error::ErrorKindExt;
 
     use crate::cluster::{ClusterConfig, ClusterMembers};
@@ -14,7 +16,7 @@ pub mod tests {
     use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
     use crate::message::Message;
     use crate::node::NodeId;
-    use crate::{Error, ErrorKind, Result};
+    use crate::{ErrorKind, Result};
 
     type Logs = Arc<Mutex<HashMap<(LogIndex, Option<LogIndex>), Log>>>;
 
@@ -108,32 +110,32 @@ pub mod tests {
         type LoadBallot = LoadBallotImpl;
         type SaveLog = NoopSaveLog;
         type LoadLog = LoadLogImpl;
-        type Timeout = FibersTimeout;
+        type Timeout = TokioTimeout;
 
-        fn try_recv_message(&mut self) -> Result<Option<Message>> {
+        fn try_recv_message(self: Pin<&mut Self>, _cx: &mut Context) -> Result<Option<Message>> {
             Ok(None)
         }
 
-        fn send_message(&mut self, _message: Message) {}
+        fn send_message(self: Pin<&mut Self>, _message: Message) {}
 
-        fn save_ballot(&mut self, _ballot: Ballot) -> Self::SaveBallot {
+        fn save_ballot(self: Pin<&mut Self>, _ballot: Ballot) -> Self::SaveBallot {
             NoopSaveBallot
         }
 
-        fn load_ballot(&mut self) -> Self::LoadBallot {
+        fn load_ballot(self: Pin<&mut Self>) -> Self::LoadBallot {
             let mut ballots = self.ballots.lock().expect("Never fails");
             LoadBallotImpl(ballots.pop())
         }
 
-        fn save_log_prefix(&mut self, _prefix: LogPrefix) -> Self::SaveLog {
+        fn save_log_prefix(self: Pin<&mut Self>, _prefix: LogPrefix) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn save_log_suffix(&mut self, _suffix: &LogSuffix) -> Self::SaveLog {
+        fn save_log_suffix(self: Pin<&mut Self>, _suffix: &LogSuffix) -> Self::SaveLog {
             NoopSaveLog
         }
 
-        fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
+        fn load_log(self: Pin<&mut Self>, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
             let mut logs = self.logs.lock().expect("Never fails");
             if let Some(log) = logs.remove(&(start, end)) {
                 match log {
@@ -157,11 +159,11 @@ pub mod tests {
             }
         }
 
-        fn create_timeout(&mut self, role: Role) -> Self::Timeout {
+        fn create_timeout(self: Pin<&mut Self>, role: Role) -> Self::Timeout {
             match role {
-                Role::Leader => FibersTimeout(timer::timeout(self.leader_timeout)),
-                Role::Follower => FibersTimeout(timer::timeout(self.follower_timeout)),
-                Role::Candidate => FibersTimeout(timer::timeout(self.candidate_timeout)),
+                Role::Leader => TokioTimeout::new(self.leader_timeout),
+                Role::Follower => TokioTimeout::new(self.follower_timeout),
+                Role::Candidate => TokioTimeout::new(self.candidate_timeout),
             }
         }
     }
@@ -170,10 +172,9 @@ pub mod tests {
     #[derive(Debug)]
     pub struct NoopSaveBallot;
     impl Future for NoopSaveBallot {
-        type Item = ();
-        type Error = Error;
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(()))
+        type Output = Result<()>;
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -181,10 +182,9 @@ pub mod tests {
     #[derive(Debug)]
     pub struct LoadBallotImpl(Option<Ballot>);
     impl Future for LoadBallotImpl {
-        type Item = Option<Ballot>;
-        type Error = Error;
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(self.0.clone()))
+        type Output = Result<Option<Ballot>>;
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+            Poll::Ready(Ok(self.0.clone()))
         }
     }
 
@@ -192,10 +192,9 @@ pub mod tests {
     #[derive(Debug)]
     pub struct NoopSaveLog;
     impl Future for NoopSaveLog {
-        type Item = ();
-        type Error = Error;
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            Ok(Async::Ready(()))
+        type Output = Result<()>;
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -206,33 +205,34 @@ pub mod tests {
         suffix: Option<LogSuffix>,
     }
     impl Future for LoadLogImpl {
-        type Item = Log;
-        type Error = Error;
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        type Output = Result<Log>;
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
             if let Some(prefix) = self.prefix.clone() {
-                return Ok(Async::Ready(Log::Prefix(prefix)));
+                return Poll::Ready(Ok(Log::Prefix(prefix)));
             }
             if let Some(suffix) = self.suffix.clone() {
-                return Ok(Async::Ready(Log::Suffix(suffix)));
+                return Poll::Ready(Ok(Log::Suffix(suffix)));
             }
 
-            Err(ErrorKind::InconsistentState
+            Poll::Ready(Err(ErrorKind::InconsistentState
                 .cause("Neither prefix or suffix is not given")
-                .into())
+                .into()))
         }
     }
 
     /// fibers を使ったタイムアウトの実装。
     #[derive(Debug)]
-    pub struct FibersTimeout(timer::Timeout);
-    impl Future for FibersTimeout {
-        type Item = ();
-        type Error = Error;
+    pub struct TokioTimeout(Pin<Box<Sleep>>);
+    impl TokioTimeout {
+        fn new(timeout: Duration) -> Self {
+            Self(Box::pin(sleep(timeout)))
+        }
+    }
+    impl Future for TokioTimeout {
+        type Output = Result<()>;
 
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            self.0
-                .poll()
-                .map_err(|_| ErrorKind::Other.cause("Broken timer").into())
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+            self.0.as_mut().poll(cx).map(|()| Ok(()))
         }
     }
 }

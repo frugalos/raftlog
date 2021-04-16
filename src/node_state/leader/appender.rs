@@ -1,5 +1,8 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::FutureExt;
 use std::mem;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::super::Common;
 use crate::log::{LogEntry, LogIndex, LogSuffix};
@@ -11,7 +14,7 @@ use crate::{Io, Result};
 /// ストレージへの追記中に新たな追加要求が発行された場合には、
 /// 新規分はそのバッファに積まれていく.
 pub struct LogAppender<IO: Io> {
-    task: Option<IO::SaveLog>,
+    task: Option<Pin<Box<IO::SaveLog>>>,
     in_progress: Option<LogSuffix>,
     pendings: Vec<LogEntry>,
 }
@@ -30,14 +33,20 @@ impl<IO: Io> LogAppender<IO> {
         if self.task.is_none() {
             let head = common.log().tail();
             let suffix = LogSuffix { head, entries };
-            self.task = Some(common.save_log_suffix(&suffix));
+            self.task = Some(Box::pin(common.save_log_suffix(&suffix)));
             self.in_progress = Some(suffix);
         } else {
             self.pendings.extend(entries)
         }
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<Option<LogSuffix>> {
-        if let Async::Ready(Some(())) = track!(self.task.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<Option<LogSuffix>> {
+        let mut task: OptionFuture<_> = self.task.as_mut().into();
+        if let Poll::Ready(Some(result)) = track!(task.poll_unpin(cx)) {
+            let _ = track!(result)?;
             self.task = None;
             let suffix = self.in_progress.take().expect("Never fails");
             track!(common.handle_log_appended(&suffix))?;

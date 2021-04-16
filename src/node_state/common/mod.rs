@@ -1,5 +1,8 @@
-use futures::{Async, Future, Poll};
+use futures::future::OptionFuture;
+use futures::{Future, FutureExt};
 use std::collections::VecDeque;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use self::rpc_builder::{RpcCallee, RpcCaller};
 use super::candidate::Candidate;
@@ -12,7 +15,7 @@ use crate::log::{Log, LogHistory, LogIndex, LogPosition, LogPrefix, LogSuffix};
 use crate::message::{Message, MessageHeader, SequenceNumber};
 use crate::metrics::NodeStateMetrics;
 use crate::node::{Node, NodeId};
-use crate::{Error, ErrorKind, Event, Io, Result};
+use crate::{ErrorKind, Event, Io, Result};
 
 mod rpc_builder;
 
@@ -20,12 +23,12 @@ mod rpc_builder;
 pub struct Common<IO: Io> {
     local_node: Node,
     history: LogHistory,
-    timeout: IO::Timeout,
+    timeout: Pin<Box<IO::Timeout>>,
     events: VecDeque<Event>,
-    io: IO,
+    io: Pin<Box<IO>>,
     unread_message: Option<Message>,
     seq_no: SequenceNumber,
-    load_committed: Option<IO::LoadLog>,
+    load_committed: Option<Pin<Box<IO::LoadLog>>>,
     install_snapshot: Option<InstallSnapshot<IO>>,
     metrics: NodeStateMetrics,
 }
@@ -34,21 +37,17 @@ where
     IO: Io,
 {
     /// 新しい`Common`インスタンスを生成する.
-    pub fn new(
-        node_id: NodeId,
-        mut io: IO,
-        config: ClusterConfig,
-        metrics: NodeStateMetrics,
-    ) -> Self {
+    pub fn new(node_id: NodeId, io: IO, config: ClusterConfig, metrics: NodeStateMetrics) -> Self {
         // 最初は（仮に）フォロワーだとしておく
-        let timeout = io.create_timeout(Role::Follower);
+        let mut io = Box::pin(io);
+        let timeout = io.as_mut().create_timeout(Role::Follower);
         Common {
             local_node: Node::new(node_id),
             io,
             history: LogHistory::new(config),
             unread_message: None,
             seq_no: SequenceNumber::new(0),
-            timeout,
+            timeout: Box::pin(timeout),
             events: VecDeque::new(),
             load_committed: None,
             install_snapshot: None,
@@ -229,38 +228,38 @@ where
     ///
     /// 使い方を間違えるとデータの整合性を破壊してしまう可能性があるので、
     /// 注意を喚起する意味を込めて`unsafe`とする.
-    pub unsafe fn io_mut(&mut self) -> &mut IO {
-        &mut self.io
+    pub unsafe fn io_mut(&mut self) -> Pin<&mut IO> {
+        self.io.as_mut()
     }
 
     /// 指定範囲のローカルログをロードする.
     pub fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> IO::LoadLog {
-        self.io.load_log(start, end)
+        self.io.as_mut().load_log(start, end)
     }
 
     /// ローカルログの末尾部分に`suffix`を追記する.
     pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
-        self.io.save_log_suffix(suffix)
+        self.io.as_mut().save_log_suffix(suffix)
     }
 
     /// 現在の投票状況を保存する.
     pub fn save_ballot(&mut self) -> IO::SaveBallot {
-        self.io.save_ballot(self.local_node.ballot.clone())
+        self.io.as_mut().save_ballot(self.local_node.ballot.clone())
     }
 
     /// 以前の投票状況を復元する.
     pub fn load_ballot(&mut self) -> IO::LoadBallot {
-        self.io.load_ballot()
+        self.io.as_mut().load_ballot()
     }
 
     /// 指定されたロール用のタイムアウトを設定する.
     pub fn set_timeout(&mut self, role: Role) {
-        self.timeout = self.io.create_timeout(role);
+        self.timeout = Box::pin(self.io.as_mut().create_timeout(role));
     }
 
     /// タイムアウトに達していないかを確認する.
-    pub fn poll_timeout(&mut self) -> Result<Async<()>> {
-        track!(self.timeout.poll())
+    pub fn poll_timeout(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        track!(self.timeout.poll_unpin(cx))
     }
 
     /// ユーザに通知するイベントがある場合には、それを返す.
@@ -270,11 +269,11 @@ where
     }
 
     /// 受信メッセージがある場合には、それを返す.
-    pub fn try_recv_message(&mut self) -> Result<Option<Message>> {
+    pub fn try_recv_message(&mut self, cx: &mut Context) -> Result<Option<Message>> {
         if let Some(message) = self.unread_message.take() {
             Ok(Some(message))
         } else {
-            track!(self.io.try_recv_message())
+            track!(self.io.as_mut().try_recv_message(cx))
         }
     }
 
@@ -364,10 +363,12 @@ where
     }
 
     /// バックグランド処理を一単位実行する.
-    pub fn run_once(&mut self) -> Result<NextState<IO>> {
+    pub fn run_once(&mut self, cx: &mut Context<'_>) -> Result<NextState<IO>> {
         loop {
             // スナップショットのインストール処理
-            if let Async::Ready(Some(summary)) = track!(self.install_snapshot.poll())? {
+            let mut install_snapshot: OptionFuture<_> = self.install_snapshot.as_mut().into();
+            if let Poll::Ready(Some(result)) = track!(install_snapshot.poll_unpin(cx)) {
+                let summary = track!(result)?;
                 let SnapshotSummary {
                     tail: new_head,
                     config,
@@ -378,7 +379,9 @@ where
             }
 
             // コミット済みログの処理.
-            if let Async::Ready(Some(log)) = track!(self.load_committed.poll())? {
+            let mut load_committed: OptionFuture<_> = self.load_committed.as_mut().into();
+            if let Poll::Ready(Some(result)) = track!(load_committed.poll_unpin(cx)) {
+                let log = track!(result)?;
                 // コミット済みのログを取得したので、ユーザに（イベント経由で）通知する.
                 self.load_committed = None;
                 match log {
@@ -396,7 +399,7 @@ where
 
             let start = self.history.consumed_tail().index;
             let end = self.history.committed_tail().index;
-            self.load_committed = Some(self.load_log(start, Some(end)));
+            self.load_committed = Some(Box::pin(self.load_log(start, Some(end))));
         }
         Ok(None)
     }
@@ -450,7 +453,7 @@ struct SnapshotSummary {
 }
 
 struct InstallSnapshot<IO: Io> {
-    future: IO::SaveLog,
+    future: Pin<Box<IO::SaveLog>>,
     summary: SnapshotSummary,
 }
 impl<IO: Io> InstallSnapshot<IO> {
@@ -459,21 +462,24 @@ impl<IO: Io> InstallSnapshot<IO> {
             tail: prefix.tail,
             config: prefix.config.clone(),
         };
-        let future = common.io.save_log_prefix(prefix);
+        let future = Box::pin(common.io.as_mut().save_log_prefix(prefix));
         InstallSnapshot { future, summary }
     }
 }
 impl<IO: Io> Future for InstallSnapshot<IO> {
-    type Item = SnapshotSummary;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(track!(self.future.poll())?.map(|()| self.summary.clone()))
+    type Output = Result<SnapshotSummary>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        track!(self
+            .future
+            .poll_unpin(cx)
+            .map(|result| result.map(|()| self.summary.clone())))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::task::noop_waker_ref;
     use prometrics::metrics::MetricBuilder;
     use trackable::result::TestResult;
 
@@ -481,8 +487,8 @@ mod tests {
     use crate::metrics::NodeStateMetrics;
     use crate::test_util::tests::TestIoBuilder;
 
-    #[test]
-    fn is_snapshot_installing_works() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn is_snapshot_installing_works() -> TestResult {
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
@@ -491,6 +497,8 @@ mod tests {
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let prefix = LogPrefix {
             tail: LogPosition::default(),
@@ -505,8 +513,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn is_focusing_on_installing_snapshot_works() -> TestResult {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn is_focusing_on_installing_snapshot_works() -> TestResult {
         let node_id: NodeId = "node1".into();
         let metrics = track!(NodeStateMetrics::new(&MetricBuilder::new()))?;
         let io = TestIoBuilder::new()
@@ -515,6 +523,8 @@ mod tests {
             .add_member("node3".into())
             .finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new(node_id, io, cluster.clone(), metrics);
         let prev_term = Term::new(0);
         let node_prefix = LogPrefix {

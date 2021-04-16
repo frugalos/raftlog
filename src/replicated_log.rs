@@ -1,5 +1,7 @@
-use futures::{Poll, Stream};
+use futures::task::{Context, Poll};
+use futures::{Stream, StreamExt};
 use prometrics::metrics::MetricBuilder;
+use std::pin::Pin;
 use std::sync::Arc;
 use trackable::error::ErrorKindExt;
 
@@ -11,7 +13,7 @@ use crate::message::SequenceNumber;
 use crate::metrics::RaftlogMetrics;
 use crate::node::{Node, NodeId};
 use crate::node_state::{NodeState, RoleState};
-use crate::{Error, ErrorKind, Result};
+use crate::{ErrorKind, Result};
 
 /// Raftアルゴリズムに基づく分散複製ログ.
 ///
@@ -271,15 +273,18 @@ impl<IO: Io> ReplicatedLog<IO> {
     /// 破壊的な操作は、Raftの管理外の挙動となり、
     /// 整合性を崩してしまう可能性もあるので、
     /// 注意を喚起する意味で`unsafe`と設定されている.
-    pub unsafe fn io_mut(&mut self) -> &mut IO {
+    pub unsafe fn io_mut(&mut self) -> Pin<&mut IO> {
         self.node.common.io_mut()
     }
 }
 impl<IO: Io> Stream for ReplicatedLog<IO> {
-    type Item = Event;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        track!(self.node.poll(), "node={:?}", self.local_node())
+    type Item = Result<Event>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        track!(
+            self.node.poll_next_unpin(cx),
+            "node={:?}",
+            self.local_node()
+        )
     }
 }
 

@@ -1,5 +1,8 @@
-use futures::{Async, Future};
+use futures::future::OptionFuture;
+use futures::FutureExt;
 use std::collections::HashSet;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::{Common, NextState};
 use crate::election::Role;
@@ -17,12 +20,12 @@ use crate::{Io, Result};
 /// - 3-b. タイムアウトに達したら、次の選挙を開始して再び立候補
 pub struct Candidate<IO: Io> {
     followers: HashSet<NodeId>,
-    init: Option<IO::SaveBallot>,
+    init: Option<Pin<Box<IO::SaveBallot>>>,
 }
 impl<IO: Io> Candidate<IO> {
     pub fn new(common: &mut Common<IO>) -> Self {
         common.set_timeout(Role::Candidate);
-        let future = common.save_ballot();
+        let future = Box::pin(common.save_ballot());
         Candidate {
             init: Some(future),
             followers: HashSet::new(),
@@ -47,8 +50,14 @@ impl<IO: Io> Candidate<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        if let Async::Ready(Some(())) = track!(self.init.poll())? {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
+        let mut init: OptionFuture<_> = self.init.as_mut().into();
+        if let Poll::Ready(Some(result)) = track!(init.poll_unpin(cx)) {
+            let _ = track!(result)?;
             self.init = None;
             common.rpc_caller().broadcast_request_vote();
         }

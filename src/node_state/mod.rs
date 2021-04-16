@@ -1,4 +1,6 @@
-use futures::{Async, Poll, Stream};
+use futures::task::{Context, Poll};
+use futures::Stream;
+use std::pin::Pin;
 use std::time::Instant;
 
 pub use self::common::Common;
@@ -12,7 +14,7 @@ use crate::cluster::ClusterConfig;
 use crate::message::Message;
 use crate::metrics::NodeStateMetrics;
 use crate::node::NodeId;
-use crate::{Error, Event, Io, Result};
+use crate::{Event, Io, Result};
 
 mod candidate;
 mod common;
@@ -76,7 +78,9 @@ impl<IO: Io> NodeState<IO> {
                 RoleState::Candidate(ref mut t) => {
                     track!(t.handle_message(&mut self.common, &message))
                 }
-                RoleState::Leader(ref mut t) => track!(t.handle_message(&mut self.common, message)),
+                RoleState::Leader(ref mut t) => {
+                    track!(t.handle_message(&mut self.common, message))
+                }
             },
         }
     }
@@ -114,65 +118,66 @@ impl<IO: Io> NodeState<IO> {
     }
 }
 impl<IO: Io> Stream for NodeState<IO> {
-    type Item = Event;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    type Item = Result<Event>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
         let mut did_something = true;
         while did_something {
             did_something = false;
             // イベントチェック
-            if let Some(e) = self.common.next_event() {
-                return Ok(Async::Ready(Some(e)));
+            if let Some(e) = this.common.next_event() {
+                return Poll::Ready(Some(Ok(e)));
             }
 
             // タイムアウト処理
-            if let Async::Ready(()) = track!(self.common.poll_timeout())? {
+            if let Poll::Ready(result) = track!((&mut this.common).poll_timeout(cx)) {
+                let _ = track!(result)?;
                 did_something = true;
-                self.metrics.poll_timeout_total.increment();
-                if let Some(next) = track!(self.handle_timeout())? {
-                    self.handle_role_change(next);
+                this.metrics.poll_timeout_total.increment();
+                if let Some(next) = track!(this.handle_timeout())? {
+                    this.handle_role_change(next);
                 }
-                if let Some(e) = self.common.next_event() {
-                    return Ok(Async::Ready(Some(e)));
+                if let Some(e) = this.common.next_event() {
+                    return Poll::Ready(Some(Ok(e)));
                 }
             }
 
             // 共通タスク
-            if let Some(next) = track!(self.common.run_once())? {
+            if let Some(next) = track!(this.common.run_once(cx))? {
                 did_something = true;
-                self.handle_role_change(next);
+                this.handle_role_change(next);
             }
-            if let Some(e) = self.common.next_event() {
-                return Ok(Async::Ready(Some(e)));
+            if let Some(e) = this.common.next_event() {
+                return Poll::Ready(Some(Ok(e)));
             }
 
             // 各状態固有のタスク
-            let result = match self.role {
-                RoleState::Loader(ref mut t) => track!(t.run_once(&mut self.common))?,
-                RoleState::Follower(ref mut t) => track!(t.run_once(&mut self.common))?,
-                RoleState::Candidate(ref mut t) => track!(t.run_once(&mut self.common))?,
-                RoleState::Leader(ref mut t) => track!(t.run_once(&mut self.common))?,
+            let result = match this.role {
+                RoleState::Loader(ref mut t) => track!(t.run_once(&mut this.common, cx))?,
+                RoleState::Follower(ref mut t) => track!(t.run_once(&mut this.common, cx))?,
+                RoleState::Candidate(ref mut t) => track!(t.run_once(&mut this.common, cx))?,
+                RoleState::Leader(ref mut t) => track!(t.run_once(&mut this.common, cx))?,
             };
             if let Some(next) = result {
                 did_something = true;
-                self.handle_role_change(next);
+                this.handle_role_change(next);
             }
-            if let Some(e) = self.common.next_event() {
-                return Ok(Async::Ready(Some(e)));
+            if let Some(e) = this.common.next_event() {
+                return Poll::Ready(Some(Ok(e)));
             }
 
             // 受信メッセージ処理
-            if let Some(message) = track!(self.common.try_recv_message())? {
+            if let Some(message) = track!(this.common.try_recv_message(cx))? {
                 did_something = true;
-                if let Some(next) = track!(self.handle_message(message))? {
-                    self.handle_role_change(next);
+                if let Some(next) = track!(this.handle_message(message))? {
+                    this.handle_role_change(next);
                 }
-                if let Some(e) = self.common.next_event() {
-                    return Ok(Async::Ready(Some(e)));
+                if let Some(e) = this.common.next_event() {
+                    return Poll::Ready(Some(Ok(e)));
                 }
             }
         }
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
 
@@ -207,37 +212,44 @@ impl<IO: Io> RoleState<IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::task::noop_waker_ref;
     use prometrics::metrics::MetricBuilder;
 
     use crate::test_util::tests::TestIoBuilder;
 
-    #[test]
-    fn node_state_is_loading_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn node_state_is_loading_works() {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let node = NodeState::load("test".into(), cluster, io, metrics);
         assert!(node.is_loading());
     }
 
-    #[test]
-    fn role_state_is_loader_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn role_state_is_loader_works() {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new("test".into(), io, cluster, metrics);
-        let state = RoleState::Loader(Loader::new(&mut common));
+        let state = RoleState::Loader(Loader::new(&mut common, &mut cx));
         assert!(state.is_loader());
         assert!(!state.is_candidate());
     }
 
-    #[test]
-    fn role_state_is_candidate_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn role_state_is_candidate_works() {
         let metrics = NodeStateMetrics::new(&MetricBuilder::new()).expect("Never fails");
         let io = TestIoBuilder::new().finish();
         let cluster = io.cluster.clone();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
         let mut common = Common::new("test".into(), io, cluster, metrics);
-        let state = RoleState::Candidate(Candidate::new(&mut common));
+        let state = RoleState::Candidate(Candidate::new(&mut common, &mut cx));
         assert!(!state.is_loader());
         assert!(state.is_candidate());
     }

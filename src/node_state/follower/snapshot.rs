@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::task::Context;
 
 use super::super::{Common, NextState, RoleState};
 use super::{Follower, FollowerIdle};
@@ -18,7 +19,7 @@ use crate::{Io, Result};
 /// このサブ状態が使われるのは「未コミット地点に対するスナップショット」の
 /// インストールをリーダから指示された場合、のみである.
 pub struct FollowerSnapshot<IO: Io> {
-    _phantom: PhantomData<IO>,
+    _phantom: PhantomData<fn() -> IO>,
 }
 impl<IO: Io> FollowerSnapshot<IO> {
     pub fn new() -> Self {
@@ -36,7 +37,11 @@ impl<IO: Io> FollowerSnapshot<IO> {
         }
         Ok(None)
     }
-    pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
+    pub fn run_once(
+        &mut self,
+        common: &mut Common<IO>,
+        _cx: &mut Context<'_>,
+    ) -> Result<NextState<IO>> {
         if common.is_snapshot_installing() {
             Ok(None)
         } else {

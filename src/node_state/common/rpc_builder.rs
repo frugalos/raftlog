@@ -50,12 +50,12 @@ impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
             suffix,
         }
         .into();
-        self.common.io.send_message(message);
+        self.common.io.as_mut().send_message(message);
     }
     pub fn send_install_snapshot(mut self, peer: &NodeId, prefix: LogPrefix) {
         let header = self.make_header(peer);
         let message = message::InstallSnapshotCast { header, prefix }.into();
-        self.common.io.send_message(message);
+        self.common.io.as_mut().send_message(message);
     }
 
     fn make_header(&mut self, destination: &NodeId) -> MessageHeader {
@@ -75,7 +75,7 @@ impl<'a, IO: 'a + Io> RpcCaller<'a, IO> {
                 do_self_reply = true;
             } else {
                 message.set_destination(peer);
-                self.common.io.send_message(message.clone());
+                self.common.io.as_mut().send_message(message.clone());
             }
         }
         if do_self_reply {
@@ -96,7 +96,7 @@ impl<'a, IO: 'a + Io> RpcCallee<'a, IO> {
     pub fn reply_request_vote(self, voted: bool) {
         let header = self.make_header();
         let message = message::RequestVoteReply { header, voted }.into();
-        self.common.io.send_message(message);
+        self.common.io.as_mut().send_message(message);
     }
     pub fn reply_append_entries(self, log_tail: LogPosition) {
         let message = AppendEntriesReply {
@@ -105,7 +105,7 @@ impl<'a, IO: 'a + Io> RpcCallee<'a, IO> {
             busy: false,
         }
         .into();
-        self.common.io.send_message(message);
+        self.common.io.as_mut().send_message(message);
     }
     pub fn reply_busy(self) {
         let message = AppendEntriesReply {
@@ -114,7 +114,7 @@ impl<'a, IO: 'a + Io> RpcCallee<'a, IO> {
             busy: true,
         }
         .into();
-        self.common.io.send_message(message);
+        self.common.io.as_mut().send_message(message);
     }
 
     fn make_header(&self) -> MessageHeader {
