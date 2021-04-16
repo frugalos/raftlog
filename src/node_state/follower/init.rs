@@ -1,4 +1,4 @@
-use futures::Future;
+use futures::FutureExt;
 use std::pin::Pin;
 use std::task::Context;
 
@@ -18,10 +18,7 @@ pub struct FollowerInit<IO: Io> {
     pending_vote: Option<MessageHeader>,
 }
 impl<IO: Io> FollowerInit<IO> {
-    pub fn new(
-        common: &mut Common<IO>,
-        pending_vote: Option<MessageHeader>,
-    ) -> Self {
+    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
         let future = Box::pin(common.save_ballot());
         FollowerInit {
             future,
@@ -50,7 +47,7 @@ impl<IO: Io> FollowerInit<IO> {
         common: &mut Common<IO>,
         cx: &mut Context<'_>,
     ) -> Result<NextState<IO>> {
-        let item = track!(Pin::new(&mut self.future).poll(cx));
+        let item = track!(self.future.poll_unpin(cx));
         if item.is_ready() {
             if let Some(header) = self.pending_vote.take() {
                 common.rpc_callee(&header).reply_request_vote(true);

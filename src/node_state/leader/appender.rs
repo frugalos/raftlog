@@ -1,5 +1,5 @@
 use futures::future::OptionFuture;
-use futures::Future;
+use futures::FutureExt;
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -45,7 +45,7 @@ impl<IO: Io> LogAppender<IO> {
         cx: &mut Context<'_>,
     ) -> Result<Option<LogSuffix>> {
         let mut task: OptionFuture<_> = self.task.as_mut().into();
-        if let Poll::Ready(Some(result)) = track!(Pin::new(&mut task).poll(cx)) {
+        if let Poll::Ready(Some(result)) = track!(task.poll_unpin(cx)) {
             let _ = track!(result)?;
             self.task = None;
             let suffix = self.in_progress.take().expect("Never fails");

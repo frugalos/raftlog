@@ -1,6 +1,6 @@
-use futures::task::{Context, Poll};
-use futures::Future;
+use futures::{Future, FutureExt};
 use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use super::{Common, NextState};
 use crate::election::Role;
@@ -26,7 +26,7 @@ impl<IO: Io> Loader<IO> {
         common: &mut Common<IO>,
         cx: &mut Context<'_>,
     ) -> Result<NextState<IO>> {
-        while let Poll::Ready(result) = track!(Pin::new(&mut self.phase).poll(cx)) {
+        while let Poll::Ready(result) = track!(self.phase.poll_unpin(cx)) {
             let phase = track!(result)?;
             let next = match phase {
                 Phase::A(ballot) => {
@@ -99,8 +99,8 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         match self.get_mut() {
-            Phase::A(f) => track!(Pin::new(f).poll(cx)).map(|t| t.map(Phase::A)),
-            Phase::B(f) => track!(Pin::new(f).poll(cx)).map(|t| t.map(Phase::B)),
+            Phase::A(f) => track!(f.poll_unpin(cx)).map(|t| t.map(Phase::A)),
+            Phase::B(f) => track!(f.poll_unpin(cx)).map(|t| t.map(Phase::B)),
         }
     }
 }

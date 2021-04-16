@@ -108,11 +108,7 @@ impl<IO: Io> Leader<IO> {
         track!(self.followers.run_once(common, cx))?;
         Ok(None)
     }
-    pub fn propose(
-        &mut self,
-        common: &mut Common<IO>,
-        entry: LogEntry,
-    ) -> ProposalId {
+    pub fn propose(&mut self, common: &mut Common<IO>, entry: LogEntry) -> ProposalId {
         let proposal_id = self.next_proposal_id(common);
         self.appender.append(common, vec![entry]);
         proposal_id

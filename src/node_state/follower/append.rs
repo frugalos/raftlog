@@ -1,5 +1,5 @@
 use futures::future::OptionFuture;
-use futures::Future;
+use futures::FutureExt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -65,7 +65,7 @@ impl<IO: Io> FollowerAppend<IO> {
         cx: &mut Context<'_>,
     ) -> Result<NextState<IO>> {
         let mut future: OptionFuture<_> = self.future.as_mut().into();
-        if let Poll::Ready(result) = track!(Pin::new(&mut future).poll(cx)) {
+        if let Poll::Ready(result) = track!(future.poll_unpin(cx)) {
             let _ = track!(result);
             if self.new_log_tail == self.message.suffix.tail() {
                 track!(common.handle_log_appended(&self.message.suffix))?;

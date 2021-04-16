@@ -33,18 +33,12 @@ pub enum Follower<IO: Io> {
     Snapshot(FollowerSnapshot<IO>),
 }
 impl<IO: Io> Follower<IO> {
-    pub fn new(
-        common: &mut Common<IO>,
-        pending_vote: Option<MessageHeader>,
-    ) -> Self {
+    pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
         common.set_timeout(Role::Follower);
         let follower = FollowerInit::new(common, pending_vote);
         Follower::Init(follower)
     }
-    pub fn handle_timeout(
-        &mut self,
-        common: &mut Common<IO>,
-    ) -> Result<NextState<IO>> {
+    pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
         Ok(Some(common.transit_to_candidate()))
     }
     pub fn handle_message(

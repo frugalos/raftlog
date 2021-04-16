@@ -71,8 +71,7 @@ pub trait Io {
     /// `suffix`の開始位置が、現在のログの末尾よりも前方の場合は、
     /// 新しい開始位置よりも後ろの古いエントリは削除してしまって構わない.
     /// (リーダの入れ替えにより、ログの未コミット部分で競合が発生したことを示している)
-    fn save_log_suffix(self: Pin<&mut Self>, suffix: &LogSuffix)
-        -> Self::SaveLog;
+    fn save_log_suffix(self: Pin<&mut Self>, suffix: &LogSuffix) -> Self::SaveLog;
 
     /// ローカルログの指定範囲のエントリを取得する.
     ///
@@ -84,11 +83,7 @@ pub trait Io {
     /// どちらの挙動も許容される.
     ///
     /// ただし、`start`とは異なる位置から、エントリの取得を開始することは許可されない.
-    fn load_log(
-        self: Pin<&mut Self>,
-        start: LogIndex,
-        end: Option<LogIndex>
-    ) -> Self::LoadLog;
+    fn load_log(self: Pin<&mut Self>, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog;
 
     /// 選挙における役割に応じた時間のタイムアウトオブジェクトを生成する.
     fn create_timeout(self: Pin<&mut Self>, role: Role) -> Self::Timeout;

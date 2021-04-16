@@ -1,5 +1,5 @@
 use futures::future::OptionFuture;
-use futures::Future;
+use futures::FutureExt;
 use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -31,10 +31,7 @@ impl<IO: Io> Candidate<IO> {
             followers: HashSet::new(),
         }
     }
-    pub fn handle_timeout(
-        &mut self,
-        common: &mut Common<IO>,
-    ) -> Result<NextState<IO>> {
+    pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
         Ok(Some(common.transit_to_candidate()))
     }
     pub fn handle_message(
@@ -59,7 +56,7 @@ impl<IO: Io> Candidate<IO> {
         cx: &mut Context<'_>,
     ) -> Result<NextState<IO>> {
         let mut init: OptionFuture<_> = self.init.as_mut().into();
-        if let Poll::Ready(Some(result)) = track!(Pin::new(&mut init).poll(cx)) {
+        if let Poll::Ready(Some(result)) = track!(init.poll_unpin(cx)) {
             let _ = track!(result)?;
             self.init = None;
             common.rpc_caller().broadcast_request_vote();

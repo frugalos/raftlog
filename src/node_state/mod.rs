@@ -35,12 +35,7 @@ pub struct NodeState<IO: Io> {
     pub metrics: NodeStateMetrics,
 }
 impl<IO: Io> NodeState<IO> {
-    pub fn load(
-        node_id: NodeId,
-        config: ClusterConfig,
-        io: IO,
-        metrics: NodeStateMetrics
-    ) -> Self {
+    pub fn load(node_id: NodeId, config: ClusterConfig, io: IO, metrics: NodeStateMetrics) -> Self {
         let mut common = Common::new(node_id, io, config, metrics.clone());
         let role = RoleState::Loader(Loader::new(&mut common));
         let started_at = Instant::now();
@@ -68,10 +63,7 @@ impl<IO: Io> NodeState<IO> {
             RoleState::Leader(ref mut t) => track!(t.handle_timeout(&mut self.common)),
         }
     }
-    fn handle_message(
-        &mut self,
-        message: Message,
-    ) -> Result<Option<RoleState<IO>>> {
+    fn handle_message(&mut self, message: Message) -> Result<Option<RoleState<IO>>> {
         if let RoleState::Loader(_) = self.role {
             // ロード中に届いたメッセージは全て破棄
             return Ok(None);

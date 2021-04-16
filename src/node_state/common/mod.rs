@@ -1,5 +1,5 @@
 use futures::future::OptionFuture;
-use futures::Future;
+use futures::{Future, FutureExt};
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -233,11 +233,7 @@ where
     }
 
     /// 指定範囲のローカルログをロードする.
-    pub fn load_log(
-        &mut self,
-        start: LogIndex,
-        end: Option<LogIndex>,
-    ) -> IO::LoadLog {
+    pub fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> IO::LoadLog {
         self.io.as_mut().load_log(start, end)
     }
 
@@ -248,9 +244,7 @@ where
 
     /// 現在の投票状況を保存する.
     pub fn save_ballot(&mut self) -> IO::SaveBallot {
-        self.io
-            .as_mut()
-            .save_ballot(self.local_node.ballot.clone())
+        self.io.as_mut().save_ballot(self.local_node.ballot.clone())
     }
 
     /// 以前の投票状況を復元する.
@@ -265,7 +259,7 @@ where
 
     /// タイムアウトに達していないかを確認する.
     pub fn poll_timeout(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        track!(Pin::new(&mut self.timeout).poll(cx))
+        track!(self.timeout.poll_unpin(cx))
     }
 
     /// ユーザに通知するイベントがある場合には、それを返す.
@@ -297,10 +291,7 @@ where
     }
 
     /// 受信メッセージに対する共通的な処理を実行する.
-    pub fn handle_message(
-        &mut self,
-        message: Message,
-    ) -> HandleMessageResult<IO> {
+    pub fn handle_message(&mut self, message: Message) -> HandleMessageResult<IO> {
         if self.local_node.role == Role::Leader
             && !self.config().is_known_node(&message.header().sender)
         {
@@ -376,7 +367,7 @@ where
         loop {
             // スナップショットのインストール処理
             let mut install_snapshot: OptionFuture<_> = self.install_snapshot.as_mut().into();
-            if let Poll::Ready(Some(result)) = track!(Pin::new(&mut install_snapshot).poll(cx)) {
+            if let Poll::Ready(Some(result)) = track!(install_snapshot.poll_unpin(cx)) {
                 let summary = track!(result)?;
                 let SnapshotSummary {
                     tail: new_head,
@@ -389,7 +380,7 @@ where
 
             // コミット済みログの処理.
             let mut load_committed: OptionFuture<_> = self.load_committed.as_mut().into();
-            if let Poll::Ready(Some(result)) = track!(Pin::new(&mut load_committed).poll(cx)) {
+            if let Poll::Ready(Some(result)) = track!(load_committed.poll_unpin(cx)) {
                 let log = track!(result)?;
                 // コミット済みのログを取得したので、ユーザに（イベント経由で）通知する.
                 self.load_committed = None;
@@ -478,11 +469,10 @@ impl<IO: Io> InstallSnapshot<IO> {
 impl<IO: Io> Future for InstallSnapshot<IO> {
     type Output = Result<SnapshotSummary>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        // TODO
-        //track!(self.future.poll())?.map(|()| Ok(self.summary.clone()))
-        Pin::new(&mut self.future)
-            .poll(cx)
-            .map(|result| result.map(|()| self.summary.clone()))
+        track!(self
+            .future
+            .poll_unpin(cx)
+            .map(|result| result.map(|()| self.summary.clone())))
     }
 }
 

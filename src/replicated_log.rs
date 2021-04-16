@@ -1,5 +1,5 @@
 use futures::task::{Context, Poll};
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use prometrics::metrics::MetricBuilder;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -54,7 +54,7 @@ impl<IO: Io> ReplicatedLog<IO> {
         node_id: NodeId,
         members: ClusterMembers,
         io: IO,
-        metric_builder: &MetricBuilder
+        metric_builder: &MetricBuilder,
     ) -> Result<Self> {
         let config = ClusterConfig::new(members);
         let mut metric_builder = metric_builder.clone();
@@ -113,10 +113,7 @@ impl<IO: Io> ReplicatedLog<IO> {
     ///
     /// 非リーダノードに対して、このメソッドが実行された場合には、
     /// `ErrorKind::NotLeader`を理由としたエラーが返される.
-    pub fn propose_config(
-        &mut self,
-        new_members: ClusterMembers,
-    ) -> Result<ProposalId> {
+    pub fn propose_config(&mut self, new_members: ClusterMembers) -> Result<ProposalId> {
         if let RoleState::Leader(ref mut leader) = self.node.role {
             let config = self.node.common.config().start_config_change(new_members);
             let term = self.node.common.term();
@@ -168,11 +165,7 @@ impl<IO: Io> ReplicatedLog<IO> {
     ///
     /// また現在のログの先頭よりも前の地点のスナップショットをインストールしようとした場合には、
     /// `ErrorKind::InvalidInput`を理由としたエラーが返される.
-    pub fn install_snapshot(
-        &mut self,
-        new_head: LogIndex,
-        snapshot: Vec<u8>,
-    ) -> Result<()> {
+    pub fn install_snapshot(&mut self, new_head: LogIndex, snapshot: Vec<u8>) -> Result<()> {
         track_assert!(
             !self.node.is_loading(),
             ErrorKind::Busy,
@@ -287,9 +280,11 @@ impl<IO: Io> ReplicatedLog<IO> {
 impl<IO: Io> Stream for ReplicatedLog<IO> {
     type Item = Result<Event>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // TODO
-        //track!(Pin::new(&mut self.node).poll_next(cx), "node={:?}", self.local_node())
-        Pin::new(&mut self.node).poll_next(cx)
+        track!(
+            self.node.poll_next_unpin(cx),
+            "node={:?}",
+            self.local_node()
+        )
     }
 }
 

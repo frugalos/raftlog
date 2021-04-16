@@ -1,4 +1,4 @@
-use futures::Future;
+use futures::FutureExt;
 use std::collections::BTreeMap;
 use std::mem;
 use std::pin::Pin;
@@ -46,7 +46,7 @@ impl<IO: Io> FollowersManager<IO> {
         let mut dones = Vec::new();
         for (follower, task) in &mut self.tasks {
             // track
-            if let Poll::Ready(result) = Pin::new(task).poll(cx) {
+            if let Poll::Ready(result) = task.poll_unpin(cx) {
                 let log = track!(result)?;
                 dones.push((follower.clone(), log));
             }
@@ -115,11 +115,7 @@ impl<IO: Io> FollowersManager<IO> {
     }
 
     /// フォロワーのローカルログとの同期処理を実行する.
-    pub fn log_sync(
-        &mut self,
-        common: &mut Common<IO>,
-        reply: &AppendEntriesReply,
-    ) -> Result<()> {
+    pub fn log_sync(&mut self, common: &mut Common<IO>, reply: &AppendEntriesReply) -> Result<()> {
         if reply.busy || self.tasks.contains_key(&reply.header.sender) {
             // フォロワーが忙しい or 既に同期処理が進行中
             return Ok(());
