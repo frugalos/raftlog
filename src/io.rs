@@ -34,6 +34,9 @@ pub trait Io {
     /// ローカルログを取得するための`Future`.
     type LoadLog: Future<Item = Log, Error = Error>;
 
+    /// ローカルログの末尾部分を削除するための`Future`.
+    type DeleteLog: Future<Item = (), Error = Error>;
+
     /// タイムアウトを表現するための`Future`.
     type Timeout: Future<Item = (), Error = Error>;
 
@@ -82,6 +85,11 @@ pub trait Io {
     ///
     /// ただし、`start`とは異なる位置から、エントリの取得を開始することは許可されない.
     fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog;
+
+
+    /// ローカルログのうち末尾部分について、
+    /// 指定された位置 `from` を含むそれ以降 [from..) を全て削除する.
+    fn delete_suffix_from(&mut self, from: LogIndex) -> Self::DeleteLog;
 
     /// 選挙における役割に応じた時間のタイムアウトオブジェクトを生成する.
     fn create_timeout(&mut self, role: Role) -> Self::Timeout;

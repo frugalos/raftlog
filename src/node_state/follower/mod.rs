@@ -2,6 +2,7 @@ use self::append::FollowerAppend;
 use self::idle::FollowerIdle;
 use self::init::FollowerInit;
 use self::snapshot::FollowerSnapshot;
+use self::delete::FollowerDelete;
 use super::{Common, NextState};
 use crate::election::Role;
 use crate::message::{Message, MessageHeader};
@@ -11,6 +12,7 @@ mod append;
 mod idle;
 mod init;
 mod snapshot;
+mod delete;
 
 /// 別の人(ノード)に投票しているフォロワー.
 ///
@@ -30,6 +32,9 @@ pub enum Follower<IO: Io> {
 
     /// ローカルログへのスナップショット保存中.
     Snapshot(FollowerSnapshot<IO>),
+
+    /// ローカルログの末尾部分を削除中
+    Delete(FollowerDelete<IO>),
 }
 impl<IO: Io> Follower<IO> {
     pub fn new(common: &mut Common<IO>, pending_vote: Option<MessageHeader>) -> Self {
@@ -58,6 +63,7 @@ impl<IO: Io> Follower<IO> {
             Follower::Idle(ref mut t) => track!(t.handle_message(common, message)),
             Follower::Append(ref mut t) => track!(t.handle_message(common, message)),
             Follower::Snapshot(ref mut t) => track!(t.handle_message(common, message)),
+            Follower::Delete(ref mut t) => track!(t.handle_message(common, message)),
         }
     }
     pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
@@ -66,6 +72,7 @@ impl<IO: Io> Follower<IO> {
             Follower::Idle(_) => Ok(None),
             Follower::Append(ref mut t) => track!(t.run_once(common)),
             Follower::Snapshot(ref mut t) => track!(t.run_once(common)),
+            Follower::Delete(ref mut t) => track!(t.run_once(common)),
         }
     }
 }
