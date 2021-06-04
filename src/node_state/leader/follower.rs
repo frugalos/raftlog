@@ -191,6 +191,10 @@ impl<IO: Io> FollowersManager<IO> {
                     .get_record(log_tail.index)
                     .map(|r| r.head.prev_term);
                 follower.synced = leader_term == Some(log_tail.prev_term);
+
+                dbg!(&follower);
+                dbg!(&log_tail);
+
                 if follower.synced {
                     follower.log_tail = log_tail.index;
                 } else {
