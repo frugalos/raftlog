@@ -238,6 +238,11 @@ where
         self.io.load_log(start, end)
     }
 
+    /// `from`以降のsuffixエントリ [from..) を削除する
+    pub fn delete_suffix_from(&mut self, from: LogIndex) -> IO::DeleteLog {
+        self.io.delete_suffix_from(from)
+    }
+
     /// ローカルログの末尾部分に`suffix`を追記する.
     pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
         self.io.save_log_suffix(suffix)
