@@ -26,8 +26,6 @@ impl<IO: Io> FollowerIdle<IO> {
         common: &mut Common<IO>,
         message: Message,
     ) -> Result<NextState<IO>> {
-        dbg!(&message);
-
         match message {
             Message::AppendEntriesCall(m) => track!(self.handle_entries(common, m)),
             Message::InstallSnapshotCast(m) => {
@@ -59,12 +57,7 @@ impl<IO: Io> FollowerIdle<IO> {
         // `AppendEntriesCall`で受け取ったエントリ群が、ローカルログの末尾に追記可能になるように調整する
 
         let local_tail = common.log().tail();
-
-        dbg!(&common.log().head());
-
         if message.suffix.tail().index < common.log().head().index {
-            dbg!(&local_tail);
-
             // リーダのログが、ローカルログに比べて大幅に短い (i.e., スナップショット地点以前)
             // => チャンネルに任意のメッセージ遅延を許している以上発生し得る
             common
@@ -97,9 +90,6 @@ impl<IO: Io> FollowerIdle<IO> {
     ) -> Result<NextState<IO>> {
         // リーダとローカルのログの共通部分を探索
         let (matched, lcp) = track!(self.longest_common_prefix(common, &message.suffix))?;
-
-        dbg!(&(matched, lcp));
-
         if !matched {
             // 両者が分岐している
             // => ローカルログ(の未コミット領域)をロールバックして、同期位置まで戻る
