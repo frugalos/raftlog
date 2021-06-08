@@ -1,3 +1,5 @@
+//! テスト用のDSLを提供するモジュール
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cluster::ClusterMembers;
@@ -11,6 +13,8 @@ use prometrics::metrics::MetricBuilder;
 
 use std::fmt;
 
+/// DSL中でノード名を表すために用いる構造体
+/// 現時点ではu8のnewtypeに過ぎない
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct NodeName(u8);
 
@@ -20,21 +24,46 @@ impl fmt::Display for NodeName {
     }
 }
 
+/// Raftlogにおけるログのエントリを抽象化した構造体
 #[derive(Clone, Debug)]
 pub enum LogEntry {
+    /// Noop（新しいリーダーが選ばれた際にissueされるコマンド）の抽象
     Noop(u8 /* term */),
+
+    /// Proposeされるコマンドを抽象したもの
+    /// データの内容には興味がないのでomitしている
     Com(u8 /* term */),
 }
 
+/// DSLの実行中における
+/// あるノードを検査するためのノード検証述語(predicate)
 #[derive(Clone, Debug)]
 pub enum Pred {
+    /// ノードのsnapshotがNoneではなく
+    /// かつ、prev_termとindexを値として持っているかを調べる
+    /// Snapshotにはこの他にデータを表すバイナリフィールドもあるが
+    /// 簡単のためにomitしてある
     SnapShotIs(u8 /* prev_term */, u8 /* index */),
-    RawLogIs(u8 /* term */, u8 /* index */, Vec<LogEntry>),
+
+    /// ノードのrawlog（ログのうちsnapshotになっていない部分）がNoneではなく
+    /// かつ、`term`, `index`, `entries` から成り立っているかを調べる
+    RawLogIs(
+        u8,            /* term */
+        u8,            /* index */
+        Vec<LogEntry>, /* entries */
+    ),
+
+    /// ノードのstateがLeaderかどうかを調べる
     IsLeader,
+
+    /// ノードのstateがFollowerかどうかを調べる
     IsFollower,
 }
 
-pub fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
+/// 引数`rlog`で表される特定のノードが、述語`pred`を満たすかどうかを調べる
+/// `pred`を満足する場合は`true`を返し、
+/// そうでない場合は`false`を返す。
+fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
     use Pred::*;
 
     match pred {
@@ -88,33 +117,69 @@ pub fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
     }
 }
 
+/// DSLの基本構成要素となる命令（コマンド）を定義するenum
 #[derive(Clone, Debug)]
 pub enum Command {
+    /// 指定されたノードをタイムアウトさせる
     Timeout(NodeName),
-    SendBan(NodeName, NodeName), // arg0 does not send any message to arg1 hereafter
-    SendAllow(NodeName, NodeName),
-    RecvBan(NodeName, NodeName), // arg1 discrads messages from arg0 hereafter
+
+    /// `RecvBan(recv, sender)`を実行すると
+    /// ノード`recv`では、`sender`から送られて来たデータが破棄される。
+    /// これはデータ受信時にフィルタアウトされることになり、
+    /// `recv`ではraftlogレベルではデータに対して一切計算が行われない。
+    RecvBan(NodeName, NodeName),
+
+    /// `RecvAllow(r, s)`を実行すると
+    /// `r`で`s`からのデータを正常に受信できるようになる。
     RecvAllow(NodeName, NodeName),
+
+    /// 指定されたノードからデータをproposeしようとする。
+    /// 簡単のため、データは空のバイナリ列 vec!() になっている
     Propose(NodeName),
+
+    /// 指定されたノードからハートビートをbroadcastする
     Heartbeat(NodeName),
+
+    /// 指定されたノードを、指定されたcluster情報を使ってrebootする
     Reboot(NodeName, ClusterMembers),
+
+    /// 指定されたノードを、raftlogの実装としての意味で1-stepだけ実行する
     Step(NodeName),
-    StepAll,
-    RunUntil(Pred),
+
+    /// 指定されたノードが、述語を満たすかどうかを検査する
     Check(NodeName, Pred),
+
+    /// 指定されたノードの持つ内部情報を出力する
     Dump(NodeName),
-    RunAllUntilStabilize,
+
+    /// 指定されたノードでsnapshotをとる
     TakeSnapshot(NodeName),
+
+    /// 全てのノードが安定するまで1-stepずつ実行する。
+    /// 例えば2つのノード A, B があるならば
+    /// loop {
+    ///  Step(A);
+    ///  Step(B);
+    ///  check_stabilized();
+    /// }
+    /// のようになる。
+    /// 「安定」というのはこれ以上loopを繰り返しても
+    /// 何のI/O操作も行われず、計算状況が変化しなくなる
+    /// ということを意味する。
+    RunAllUntilStabilize,
 }
 
+/// ノード名と`ReplicatedLog`で表される実体を対応させるテーブル
 pub type Service = BTreeMap<NodeName, ReplicatedLog<TestIo>>;
 
+/// DSLのコマンド列（プログラム）を実行する関数
 pub fn interpret(cs: &[Command], service: &mut Service) {
     for c in cs {
         interpret_command(c.clone(), service);
     }
 }
 
+/// DSLの一つのコマンドを実行する関数
 fn interpret_command(c: Command, service: &mut Service) {
     use crate::futures::Stream;
     use Command::*;
@@ -137,38 +202,24 @@ fn interpret_command(c: Command, service: &mut Service) {
         }
         Dump(node) => {
             let rlog = service.get_mut(&node).unwrap();
-            println!("{:?}", rlog.local_node());
-            dbg!(rlog.local_history());
-            dbg!(rlog.io().snapshot());
-            dbg!(rlog.io().rawlog());
-        }
-        StepAll => {
-            println!("<StepAll>");
-            for (n, io) in service.iter_mut() {
-                println!("\n  <Step {}>", n.to_string());
-                let ev = io.poll().unwrap();
-                println!("  [{:?}] {:?}", n, ev);
-                println!("  </Step {}>", n.to_string());
-            }
-            println!("</StepAll>");
+            println!("[Node Info] {:?}", rlog.local_node());
+            println!("[History] {:?}", rlog.local_history());
+            println!("[Snapshot] {:?}", rlog.io().snapshot());
+            println!("[Rawlog] {:?}", rlog.io().rawlog());
         }
         Step(node) => {
             service.get_mut(&node).unwrap().poll().unwrap();
         }
         RunAllUntilStabilize => loop {
             let mut check = true;
-            for (n, io) in service.iter_mut() {
-                println!("\n  <Step {}>", n.to_string());
+            for (_n, io) in service.iter_mut() {
                 unsafe {
-                    io.io_mut().was_io_op = false;
+                    let events_len = io.io_mut().io_events().len();
                     let ev = io.poll().unwrap();
-                    dbg!(&io.io_mut().was_io_op);
-                    dbg!(&ev);
-                    if io.io_mut().was_io_op || !ev.is_not_ready() {
+                    if events_len < io.io_mut().io_events().len() || !ev.is_not_ready() {
                         check = false;
                     }
                 }
-                println!("  </Step {}>", n.to_string());
             }
             if check {
                 return;
@@ -177,14 +228,6 @@ fn interpret_command(c: Command, service: &mut Service) {
         Timeout(node) => {
             let io: &mut TestIo = unsafe { service.get_mut(&node).unwrap().io_mut() };
             io.invoke_timer();
-        }
-        SendBan(from, to) => {
-            let io: &mut TestIo = unsafe { service.get_mut(&from).unwrap().io_mut() };
-            io.add_send_ban_list(&to.to_string());
-        }
-        SendAllow(from, to) => {
-            let io: &mut TestIo = unsafe { service.get_mut(&from).unwrap().io_mut() };
-            io.del_send_ban_list(&to.to_string());
         }
         RecvBan(reciever, sender) => {
             let io: &mut TestIo = unsafe { service.get_mut(&reciever).unwrap().io_mut() };
@@ -213,12 +256,14 @@ fn interpret_command(c: Command, service: &mut Service) {
             .unwrap();
             service.insert(node, rlog);
         }
-        _ => {
-            dbg!(&c);
-        }
     }
 }
 
+/// ノードネームの列が与えられた時に
+/// 丁度それらを構成要素として含むようなraft clusterを構成する。
+///
+/// 全点間通信ができる状態にしてあるので
+/// complete graph（w.r.t. ネットワークトポロジー）という語を用いている。
 pub fn build_complete_graph(names: &[NodeName]) -> (Service, ClusterMembers) {
     let nodes: BTreeSet<NodeId> = names.iter().map(|s| NodeId::new(s.to_string())).collect();
 
@@ -226,7 +271,7 @@ pub fn build_complete_graph(names: &[NodeName]) -> (Service, ClusterMembers) {
     let mut service = BTreeMap::new();
 
     for node in &nodes {
-        ios.insert(node.clone(), TestIo::new(node.clone()));
+        ios.insert(node.clone(), TestIo::new(node.clone(), false));
     }
 
     for src in &nodes {
@@ -255,8 +300,15 @@ pub fn build_complete_graph(names: &[NodeName]) -> (Service, ClusterMembers) {
 mod test {
     use super::*;
 
+    /// あるノードで、
+    /// snapshot(prefix)の表す最終termと
+    /// rawlog(suffix)の先頭エントリが期待するtermで
+    /// ズレが生じる現象を再現させる。
+    ///
+    /// このテストではノードaでズレが生じるようにする。
     #[test]
-    fn scenarioA() {
+    #[rustfmt::skip]
+    fn issue18_scenario1() {
         use Command::*;
         use LogEntry::*;
 
@@ -270,50 +322,73 @@ mod test {
                 RunAllUntilStabilize,
                 Timeout(a),
                 RunAllUntilStabilize,
+                // ここまでで a がリーダーになっている
+
+                // 実際にリーダーになっていることを確認する
                 Check(a, Pred::IsLeader),
                 Check(b, Pred::IsFollower),
                 Check(c, Pred::IsFollower),
-                SendBan(b, a),
-                RecvBan(b, a), // bからaには送らないし、bはaからは受け取らない
-                SendBan(c, a),
-                RecvBan(c, a), // cからaには送らないし、cはaからは受け取らない
-                Propose(a),
-                Propose(a),
-                Propose(a),
-                Propose(a),
-                Propose(a), // aにデータをためて
-                Timeout(b),
-                Timeout(c), // bとcは新しいTermへ移る準備(aのfollowを外す)
-                RunAllUntilStabilize,
-                Timeout(b), // 一方でbとcの間ではbを新しいリーダーにする
-                RunAllUntilStabilize,
+
+                RecvBan(a, b), RecvBan(a, c), // aはbからもcからも受け取らない
+                RecvBan(b, a), // bはaからは受け取らない
+                RecvBan(c, a), // cはaからは受け取らない
+
+                // aが孤立している状況で
+                // データをproposeすることで
+                // aにデータをためる
+                Propose(a), Propose(a), Propose(a), Propose(a), Propose(a),
+
+                // bとcは新しいTermへ移る準備(aのfollowを外す)
+                Timeout(b), Timeout(c),  RunAllUntilStabilize,
+
+                // bを新しいリーダーにする
+                Timeout(b), RunAllUntilStabilize,
+
+                // 想定している状況になっていることを確認する
                 Check(a, Pred::IsLeader),
                 Check(b, Pred::IsLeader),
                 Check(c, Pred::IsFollower),
                 Check(b, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])),
-                TakeSnapshot(b),
-                RunAllUntilStabilize,
+
+                // bで現在のrawlogをスナップショット化する
+                TakeSnapshot(b), RunAllUntilStabilize,
                 Check(b, Pred::SnapShotIs(4, 2)),
-                Check(b, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])), // BUG?: snapshotをとってもrawlogを削らない??
-                SendAllow(b, a),
-                RecvAllow(b, a), // 準備が終わったので、b <-> a 間を許可し
-                SendAllow(c, a),
-                RecvAllow(c, a), // c <-> a 間も許可する
-                RunAllUntilStabilize,
-                Dump(a),
-                Dump(b),
-                Heartbeat(b), // bからaとcへheartbeatを送る
-                RunAllUntilStabilize,
-                Dump(a),
-                Reboot(a, cluster),   // rebootして
-                RunAllUntilStabilize, // 初期化時にtermの不整合に気づく
+
+                // 準備が終わったので、全点間で通信ができるように戻す
+                RecvAllow(a, b), RecvAllow(a, c),
+                RecvAllow(b, a),
+                RecvAllow(c, a),
+
+                // bからaとcへheartbeatを送る
+                Heartbeat(b), RunAllUntilStabilize,
+
+                // aがstaleしていることがこの時点で判明して
+                // bのsnapshotがaに移る
+                Check(a, Pred::SnapShotIs(4 /* term */ , 2 /* index */)),
+
+                // 一方でbのrawlogは変更されないため次のようになっている
+                // snapshotは、rawlog[2].term = 4 であることを要求しているが
+                // rawlogの実体とは食い違っているため、不整合が生じている
+                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Com(2), Com(2), Com(2), Com(2), Com(2)])),
+
+                // 不整合が実際に生じるのは、reboot時のエラーチェックであり
+                // これには次の2つのコマンドを実行すれば良い
+                Reboot(a, cluster), Step(a)
             ],
             &mut service,
         );
     }
 
+    /// あるノードで,
+    /// rawlogの一部分だけを書き換えた結果として、
+    /// termの昇順整列制約が敗れることを確認する。
+    /// 上のscenario1ではsnapshot, rawlog間でズレが生じていたが
+    /// rawlog単体でもズレが生じることを示す。
+    ///
+    /// このテストではノードaで不整合が起こることを確認する。
     #[test]
-    fn scenarioB() {
+    #[rustfmt::skip]
+    fn issue18_scenario2() {
         use Command::*;
         use LogEntry::*;
 
@@ -327,30 +402,50 @@ mod test {
                 RunAllUntilStabilize,
                 Timeout(a),
                 RunAllUntilStabilize,
-                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2)])),
-                SendBan(b, a),
-                RecvBan(b, a),
-                SendBan(c, a),
-                RecvBan(c, a),
-                Propose(a),
-                Propose(a), // aのlogを一通り長くしておく
+                // ここまでで a がリーダーになっている
+
+                // 実際にリーダーになっていることを確認する
+                Check(a, Pred::IsLeader),
+                Check(b, Pred::IsFollower),
+                Check(c, Pred::IsFollower),
+
+                RecvBan(a, b), RecvBan(a, c), // aはbからもcからも受け取らない
+                RecvBan(b, a), // bはaからは受け取らない
+                RecvBan(c, a), // cはaからは受け取らない
+
+                // aを独立させた上でデータを投入する
+                Propose(a), Propose(a),
                 RunAllUntilStabilize,
                 Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Com(2), Com(2)])),
-                Timeout(b),
-                Timeout(c), // b と c の a を追従する状態を解除する
+
+                // bとcの間のやりとりで、bを新しいリーダーにする
+                Timeout(b), Timeout(c),
                 RunAllUntilStabilize,
                 Timeout(b), // b を leaderにする
                 RunAllUntilStabilize,
-                SendAllow(b, a),
+
+                Check(a, Pred::IsLeader),
+                Check(b, Pred::IsLeader),
+                Check(c, Pred::IsFollower),
+                Check(b, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])),
+
+                // 全点間通信できるようにする
+                RecvAllow(a, b), RecvAllow(a, c),
                 RecvAllow(b, a),
-                SendAllow(c, a),
                 RecvAllow(c, a),
-                Heartbeat(b),
-                RunAllUntilStabilize,
-                Dump(a),
-                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4), Com(2)])), // これが通る = バグ
-                Reboot(a, cluster),   // rebootだけしておく
-                RunAllUntilStabilize, // reboot後の様々な計算が行われて、ここでエラーが生じる
+
+                // bからハートビートを送る
+                Heartbeat(b), RunAllUntilStabilize,
+
+                // aがstaleしているため
+                // bの長さ2のrawlogにより上書きされるが
+                // rawlog[1].term = 4 と rawlog[2].term = 2 で
+                // 不整合が生じている
+                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4), Com(2)])),
+
+                // この不整合は、実際にreboot処理を行うと
+                // raftlog内部でエラーになる
+                Reboot(a, cluster), Step(a),
             ],
             &mut service,
         );

@@ -1,14 +1,19 @@
+//! テスト用DSLで用いる `Io`-traitの実装 を提供するモジュール
+//! 以下の点に留意されたい:
+//! * これ以外の`Io`-traitの実装を妨げるものではない
+
 use crate::election::{Ballot, Role};
 use crate::log::{Log, LogIndex, LogPrefix, LogSuffix};
 use crate::message::Message;
 use crate::node::NodeId;
-use crate::{Error, Io, Result};
+use crate::{Error, ErrorKind, Io, Result};
 use futures::{Async, Future, Poll};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 
 extern crate prometrics;
 
+#[allow(dead_code)]
 fn ballot_to_str(b: &Ballot) -> String {
     format!(
         "ballot(term: {}, for: {})",
@@ -86,8 +91,6 @@ fn over_write(now: &mut LogSuffix, new: &LogSuffix) {
         unimplemented!("How do you reach here? Please report us.");
     };
 
-    dbg!((offset, entries_offset));
-
     // Suggestion: LogSuffixにこの計算をするmethodを追加した方が良い
     let prev_term = if offset == 0 {
         now.head.prev_term
@@ -116,45 +119,81 @@ fn over_write(now: &mut LogSuffix, new: &LogSuffix) {
     }
 }
 
-/*
- * Test用のIO
- */
+/// IOイベントを保存するための列挙体
+pub enum IOEvent {
+    /// データを受信した
+    Recv,
+    /// データを送信した
+    Send,
+    /// 表を保存した
+    SaveBallot,
+    /// 表を読み込んだ
+    LoadBallot,
+    /// スナップショットを保存した
+    SaveSnapshot,
+    /// ログのSuffixを保存した
+    SaveSuffix,
+    /// ログを読み込んだ
+    LoadLog,
+}
+
+/// `Io`-traitを実装する構造体
 pub struct TestIo {
+    /// このIoを保持するnode
     node_id: NodeId,
+
+    /// 他のノードからメッセージを受信口
     recv: Receiver<Message>,
+
+    /// このノードにメッセージを送る際に、複製して使うことになる送信口
     send: Sender<Message>,
+
+    /// raftcluster中の他のノードの送信口を管理するmap
     channels: BTreeMap<NodeId, Sender<Message>>,
+
+    /// これまでに保存したballot全体
     ballots: Vec<Ballot>,
-    snapshotted: Option<LogPrefix>,
-    rawlogs: Option<LogSuffix>,
+
+    snapshot: Option<LogPrefix>,
+    rawlog: Option<LogSuffix>,
+
+    /// このIoを保持するnodeをタイムアウトさせたい時に
+    /// 利用するタイムアウトイベントの送信口
     invoker: Option<Sender<()>>,
-    send_ban_list: BTreeSet<String>,
+
+    /// データ受信を拒否するために用いる識別リスト
     recv_ban_list: BTreeSet<String>,
-    pub was_io_op: bool,
+
+    /// これまでに行ったIoイベントの履歴
+    io_events: Vec<IOEvent>,
+
+    /// デバッグログの出力有無
+    debug: bool,
 }
 
 impl TestIo {
-    pub fn add_send_ban_list(&mut self, name: &str) {
-        self.send_ban_list.insert(name.to_string());
-    }
-    pub fn del_send_ban_list(&mut self, name: &str) {
-        self.send_ban_list.remove(name);
-    }
+    /// `name`をノード名とするノードを受信拒否リストに追加
     pub fn add_recv_ban_list(&mut self, name: &str) {
         self.recv_ban_list.insert(name.to_string());
     }
+
+    /// `name`をノード名とするノードを受信拒否リストから削除
     pub fn del_recv_ban_list(&mut self, name: &str) {
         self.recv_ban_list.remove(name);
     }
 
+    /// 永続化したスナップショット(log prefix)の取得
     pub fn snapshot(&self) -> &Option<LogPrefix> {
-        &self.snapshotted
-    }
-    pub fn rawlog(&self) -> &Option<LogSuffix> {
-        &self.rawlogs
+        &self.snapshot
     }
 
-    pub fn new(node_id: NodeId) -> Self {
+    /// 永続化した生のログ（log suffix）の取得
+    pub fn rawlog(&self) -> &Option<LogSuffix> {
+        &self.rawlog
+    }
+
+    /// `node_id`をオーナーとして持つようにIo実体を作成
+    pub fn new(node_id: NodeId, debug: bool) -> Self {
         let (send, recv) = channel();
         Self {
             node_id,
@@ -162,82 +201,99 @@ impl TestIo {
             send,
             channels: Default::default(),
             ballots: Vec::new(),
-            snapshotted: None,
-            rawlogs: None,
+            snapshot: None,
+            rawlog: None,
             invoker: None,
-
-            send_ban_list: BTreeSet::new(),
             recv_ban_list: BTreeSet::new(),
-
-            was_io_op: false,
+            io_events: Vec::new(),
+            debug,
         }
     }
 
+    /// このIo実体にデータを送るためのチャネルを複製する
     pub fn copy_sender(&self) -> Sender<Message> {
         self.send.clone()
     }
 
+    /// `chan`を受信口として持つ`node`にデータを送れるように準備する
     pub fn set_channel(&mut self, node: NodeId, chan: Sender<Message>) {
         self.channels.insert(node, chan);
     }
 
+    /// このIoを持つノードを、raftlogのレイヤでタイムアウトさせる
     pub fn invoke_timer(&self) {
         if let Some(invoker) = &self.invoker {
-            invoker.send(()).unwrap();
+            invoker
+                .send(())
+                .expect("Testではタイムアウトの発生は失敗しない");
         }
+    }
+
+    /// これまでに発生したIoイベントの履歴を返す
+    pub fn io_events(&self) -> &[IOEvent] {
+        &self.io_events
     }
 }
 
 impl Io for TestIo {
     fn try_recv_message(&mut self) -> Result<Option<Message>> {
         let r = self.recv.try_recv();
-        if let Ok(v) = r {
-            self.was_io_op = true;
+        match r {
+            Ok(v) => {
+                self.io_events.push(IOEvent::Recv);
 
-            let who = &v.header().sender;
-            println!(
-                "\n[try_recv] {:?} <---- {:?}\n{}",
-                self.node_id,
-                who,
-                message_to_string(&v)
-            );
-            if self.recv_ban_list.contains(&who.clone().into_string()) {
-                return Ok(None);
+                let who = &v.header().sender;
+
+                if self.debug {
+                    println!(
+                        "\n[try_recv] {:?} <---- {:?}\n{}",
+                        self.node_id,
+                        who,
+                        message_to_string(&v)
+                    );
+                }
+
+                if self.recv_ban_list.contains(&who.clone().into_string()) {
+                    return Ok(None);
+                }
+                Ok(Some(v))
             }
-            Ok(Some(v))
-        } else {
-            let err = r.err().unwrap();
-            if err == TryRecvError::Empty {
-                Ok(None)
-            } else {
-                panic!("disconnected");
+            Err(err) => {
+                if err == TryRecvError::Empty {
+                    Ok(None)
+                } else {
+                    panic!("disconnected");
+                }
             }
         }
     }
 
     fn send_message(&mut self, message: Message) {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::Send);
 
         let dest: NodeId = message.header().destination.clone();
 
-        println!(
-            "\n[send] {:?} ----> {:?}\n{}",
-            self.node_id,
-            dest,
-            message_to_string(&message)
-        );
-
-        if self.send_ban_list.contains(&dest.clone().into_string()) {
-            return;
+        if self.debug {
+            println!(
+                "\n[send] {:?} ----> {:?}\n{}",
+                self.node_id,
+                dest,
+                message_to_string(&message)
+            );
         }
 
-        let channel = self.channels.get(&dest).unwrap();
-        channel.send(message).unwrap();
+        let channel = self
+            .channels
+            .get(&dest)
+            .expect("Testでは既知の相手に送信するので失敗しない");
+        channel
+            .send(message)
+            .expect("Testではレシーバはdropしないので成功しなくてはらない");
     }
 
     type SaveBallot = BallotSaver;
     fn save_ballot(&mut self, ballot: Ballot) -> Self::SaveBallot {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::SaveBallot);
 
         self.ballots.push(ballot.clone());
         BallotSaver(self.node_id.clone(), ballot)
@@ -245,7 +301,7 @@ impl Io for TestIo {
 
     type LoadBallot = BallotLoader;
     fn load_ballot(&mut self) -> Self::LoadBallot {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::LoadBallot);
 
         if self.ballots.is_empty() {
             BallotLoader(self.node_id.clone(), None)
@@ -258,27 +314,31 @@ impl Io for TestIo {
 
     type SaveLog = LogSaver;
     fn save_log_prefix(&mut self, prefix: LogPrefix) -> Self::SaveLog {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::SaveSnapshot);
 
-        println!("SAVE SNAPSHOT: {:?}", &prefix);
+        if self.debug {
+            println!("SAVE SNAPSHOT: {:?}", &prefix);
+        }
 
-        if let Some(snap) = &self.snapshotted {
+        if let Some(snap) = &self.snapshot {
             assert!(prefix.tail.is_newer_or_equal_than(snap.tail));
         }
-        self.snapshotted = Some(prefix);
+        self.snapshot = Some(prefix);
         LogSaver(SaveMode::SnapshotSave, self.node_id.clone())
     }
     fn save_log_suffix(&mut self, suffix: &LogSuffix) -> Self::SaveLog {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::SaveSuffix);
 
-        println!("SAVE RAWLOGS: {:?}", &suffix);
+        if self.debug {
+            println!("SAVE RAWLOG: {:?}", &suffix);
+        }
 
-        if let Some(rawlogs) = &mut self.rawlogs {
-            assert!(suffix.head.is_newer_or_equal_than(rawlogs.head));
-            over_write(rawlogs, suffix);
+        if let Some(rawlog) = &mut self.rawlog {
+            assert!(suffix.head.is_newer_or_equal_than(rawlog.head));
+            over_write(rawlog, suffix);
         } else {
             // 空のdiskへの書き込みに対応する
-            self.rawlogs = Some(suffix.clone());
+            self.rawlog = Some(suffix.clone());
         }
 
         LogSaver(SaveMode::RawLogSave, self.node_id.clone())
@@ -286,23 +346,83 @@ impl Io for TestIo {
 
     type LoadLog = LogLoader;
     fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {
-        self.was_io_op = true;
+        self.io_events.push(IOEvent::LoadLog);
 
-        dbg!("load log", &start, &end);
+        if self.debug {
+            println!("load log {:?} {:?}", &start, &end);
+        }
 
-        if self.snapshotted.is_none() && self.rawlogs.is_none() {
+        LogLoader {
+            start,
+            end,
+            snapshot: self.snapshot.clone(),
+            rawlog: self.rawlog.clone(),
+            debug: self.debug,
+        }
+    }
+
+    type Timeout = Invoker;
+    fn create_timeout(&mut self, _role: Role) -> Self::Timeout {
+        let (invoker, timer) = channel();
+        self.invoker = Some(invoker);
+        Invoker(timer)
+    }
+}
+
+/// タイムアウトを表現するためのfuture（の実体）
+pub struct Invoker(Receiver<()>);
+
+impl Future for Invoker {
+    type Item = ();
+    type Error = Error;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        let r = self.0.try_recv();
+        match r {
+            Ok(_) => Ok(Async::Ready(())),
+            Err(err) => {
+                if err == TryRecvError::Empty {
+                    Ok(Async::NotReady)
+                } else {
+                    panic!("disconnected");
+                }
+            }
+        }
+    }
+}
+
+/// ログ読み込みを表現するためのfuture（の実体）
+pub struct LogLoader {
+    start: LogIndex,
+    end: Option<LogIndex>,
+    snapshot: Option<LogPrefix>,
+    rawlog: Option<LogSuffix>,
+    debug: bool,
+}
+impl Future for LogLoader {
+    type Item = Log;
+    type Error = Error;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        let start = self.start;
+        let end = self.end;
+
+        if self.snapshot.is_none() && self.rawlog.is_none() {
             if start == LogIndex::new(0) && end == None {
                 // 無に対するロードなら無を作る
                 let log = LogSuffix::default(); // 何もできないのでdefaultを使う
-                return LogLoader(Some(Log::from(log)));
+                return Ok(Async::Ready(Log::from(log)));
             }
-            panic!("Try load from None: start = {:?}, end = {:?}", start, end);
+            track_panic!(
+                ErrorKind::InvalidInput,
+                "Try load from None: start = {:?}, end = {:?}",
+                start,
+                end
+            );
         }
 
         if end == None {
             // Case: startから全て [start..) 読み込む
 
-            if let Some(snap) = &self.snapshotted {
+            if let Some(snap) = &self.snapshot {
                 // snapshotが存在し……
                 if start == LogIndex::new(0) {
                     // なおかつ、startが0からであれば、まずsnapshotを読み込むことにする。
@@ -314,90 +434,63 @@ impl Io for TestIo {
                     //
                     // https://github.com/frugalos/raftlog/blob/087d8019b42a05dbc5b463db076041d45ad2db7f/src/node_state/loader.rs#L36
                     // ^--- この実装により、snapshot読み込みの後で、必要があればrawlogの読み込みが行われる
-                    return LogLoader(Some(Log::from(snap.clone())));
+                    return Ok(Async::Ready(Log::from(snap.clone())));
                 }
             }
-            if let Some(rawlogs) = &self.rawlogs {
+            if let Some(rawlog) = &self.rawlog {
                 // snapshot以降が存在する場合は、
                 // mut methodであるskip_toを使ってshrinkし、その結果を返す。
                 //
-                // startが不適切であれば、unwrapに失敗する
-                let mut rawlogs = rawlogs.clone();
-                rawlogs.skip_to(start).unwrap();
-                return LogLoader(Some(Log::from(rawlogs)));
+                // startが不適切であればskip_toでエラーになる
+                let mut rawlog = rawlog.clone();
+                rawlog.skip_to(start)?;
+                return Ok(Async::Ready(Log::from(rawlog)));
             }
 
-            // [start, None]できない
-            panic!("[Load log failure] start = {:?}, end = {:?}", start, end);
+            track_panic!(
+                ErrorKind::InvalidInput,
+                "[Load log failure] start = {:?}, end = {:?}",
+                start,
+                end
+            );
         }
 
         // 明示的に終了位置の指定されている [start, end) の読み込みケース
-        let end = end.unwrap();
+        let end = end.expect("this never fails because end != None");
 
-        assert!(start <= end);
+        track_assert!(start <= end, ErrorKind::InvalidInput);
 
-        if let Some(snap) = &self.snapshotted {
+        if let Some(snap) = &self.snapshot {
             // snapshotが存在する場合
 
             // 次のif文は
             // https://github.com/frugalos/frugalos/blob/bdb58d47ef50e5f7038bdce4b6cd31736260d6e8/frugalos_raft/src/storage/mod.rs#L120
             // を参考にしている
             if start == LogIndex::new(0) && end <= snap.tail.index {
-                dbg!(&snap);
+                if self.debug {
+                    println!("load snapshot {:?}", &snap);
+                }
                 // [0, snap.tail] を表す snapshotを全て取得したい場合
-                return LogLoader(Some(Log::from(snap.clone())));
+                return Ok(Async::Ready(Log::from(snap.clone())));
             }
         }
-        if let Some(rawlogs) = &self.rawlogs {
-            // rawlogsが存在し
-            if let Ok(sliced) = rawlogs.slice(start, end) {
-                dbg!(&sliced);
+        if let Some(rawlog) = &self.rawlog {
+            // rawlogが存在し
+            if let Ok(sliced) = rawlog.slice(start, end) {
+                if self.debug {
+                    println!("load rawlog {:?}", &sliced);
+                }
                 // 要求する部分がrawlogをshrinkして得られる場合
-                return LogLoader(Some(Log::from(sliced)));
+                return Ok(Async::Ready(Log::from(sliced)));
             }
         }
 
-        panic!("[Load log failure] start = {:?}, end = {:?}", start, end);
-    }
-
-    type Timeout = Invoker;
-    fn create_timeout(&mut self, _role: Role) -> Self::Timeout {
-        let (invoker, timer) = channel();
-        self.invoker = Some(invoker);
-        Invoker(timer)
-    }
-}
-
-pub struct Invoker(Receiver<()>);
-
-impl Future for Invoker {
-    type Item = ();
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let r = self.0.try_recv();
-        if r.is_ok() {
-            Ok(Async::Ready(()))
-        } else {
-            let err = r.err().unwrap();
-            if err == TryRecvError::Empty {
-                Ok(Async::NotReady)
-            } else {
-                panic!("disconnected");
-            }
-        }
-    }
-}
-
-pub struct LogLoader(Option<Log>);
-impl Future for LogLoader {
-    type Item = Log;
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        if let Some(log) = self.0.take() {
-            Ok(Async::Ready(log))
-        } else {
-            panic!("")
-        }
+        track_panic!(
+            ErrorKind::InvalidInput,
+            "[Load log failure] start = {:?}, end = {:?}",
+            start,
+            end
+        );
     }
 }
 
@@ -405,35 +498,27 @@ enum SaveMode {
     SnapshotSave,
     RawLogSave,
 }
+
+/// ログ保存を表現するためのfuture（の実体）
 pub struct LogSaver(SaveMode, pub NodeId);
 impl Future for LogSaver {
     type Item = ();
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.0 {
-            SaveMode::SnapshotSave => {
-                println!("[Node {}] Save Snapshot", self.1.as_str())
-            }
-            SaveMode::RawLogSave => {
-                println!("[Node {}] Save Raw Logs", self.1.as_str())
-            }
-        }
         Ok(Async::Ready(()))
     }
 }
 
+/// 票の保存を表現するためのfuture（の実体）
 pub struct BallotSaver(pub NodeId, pub Ballot);
+
+/// 票の読み込みを表現するためのfuture（の実体）
 pub struct BallotLoader(pub NodeId, pub Option<Ballot>);
 
 impl Future for BallotSaver {
     type Item = ();
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        println!(
-            "[Node {}] Save Ballot({})",
-            self.0.as_str(),
-            ballot_to_str(&self.1),
-        );
         Ok(Async::Ready(()))
     }
 }
@@ -442,7 +527,6 @@ impl Future for BallotLoader {
     type Item = Option<Ballot>;
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        println!("[Node {}] Load Ballot({:?})", self.0.as_str(), self.1);
         Ok(Async::Ready(self.1.clone()))
     }
 }
