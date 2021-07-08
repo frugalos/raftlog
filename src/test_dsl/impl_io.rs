@@ -320,10 +320,28 @@ impl Io for TestIo {
             println!("SAVE SNAPSHOT: {:?}", &prefix);
         }
 
+        // 新しいsnapshotに含まれる領域はsuffixから削除する
+        // この挙動はfrugalos_raftを参照にしている
+        // https://github.com/frugalos/frugalos/blob/bdb58d47ef50e5f7038bdce4b6cd31736260d6e8/frugalos_raft/src/storage/log_prefix/save.rs#L98
+        //
+        // ただし、IO traitの制約
+        // https://github.com/frugalos/raftlog/blob/087d8019b42a05dbc5b463db076041d45ad2db7f/src/io.rs#L64
+        // としては、削除要請はない。
+        if let Some(rawlog) = &mut self.rawlog {
+            // prefixは手持ちのrawlogの先頭部分を被覆している
+            assert!(rawlog.head.index <= prefix.tail.index);
+            // 被覆されている部分をskipする
+            assert!(rawlog.skip_to(prefix.tail.index).is_ok());
+        } else {
+            unreachable!("the argument `prefix` contains invalid entries");
+        }
+
+        // 既にsnapshotがある場合は `prefix` はそれを拡張するものである
         if let Some(snap) = &self.snapshot {
             assert!(prefix.tail.is_newer_or_equal_than(snap.tail));
         }
         self.snapshot = Some(prefix);
+
         LogSaver(SaveMode::SnapshotSave, self.node_id.clone())
     }
     fn save_log_suffix(&mut self, suffix: &LogSuffix) -> Self::SaveLog {
@@ -349,7 +367,7 @@ impl Io for TestIo {
         self.io_events.push(IOEvent::LoadLog);
 
         if self.debug {
-            println!("load log {:?} {:?}", &start, &end);
+            println!("LOAD LOG {:?} {:?}", &start, &end);
         }
 
         LogLoader {
@@ -466,7 +484,7 @@ impl Future for LogLoader {
             // 次のif文は
             // https://github.com/frugalos/frugalos/blob/bdb58d47ef50e5f7038bdce4b6cd31736260d6e8/frugalos_raft/src/storage/mod.rs#L120
             // を参考にしている
-            if start == LogIndex::new(0) && end <= snap.tail.index {
+            if end <= snap.tail.index {
                 if self.debug {
                     println!("load snapshot {:?}", &snap);
                 }

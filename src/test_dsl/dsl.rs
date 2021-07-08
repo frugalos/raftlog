@@ -39,6 +39,9 @@ pub enum LogEntry {
 /// あるノードを検査するためのノード検証述語(predicate)
 #[derive(Clone, Debug)]
 pub enum Pred {
+    /// Not(pred)がtrue iff predがfalse
+    Not(Box<Pred>),
+
     /// ノードのsnapshotがNoneではなく
     /// かつ、prev_termとindexを値として持っているかを調べる
     /// Snapshotにはこの他にデータを表すバイナリフィールドもあるが
@@ -58,6 +61,12 @@ pub enum Pred {
 
     /// ノードのstateがFollowerかどうかを調べる
     IsFollower,
+
+    /// Log中のTermの整合性を調べる。
+    /// これは2つの段階からなる:
+    /// 1. snapshotとrawlogが正しく接合している
+    /// 2. rawlogのtermが昇順になっている
+    LogTermConsistency,
 }
 
 /// 引数`rlog`で表される特定のノードが、述語`pred`を満たすかどうかを調べる
@@ -67,8 +76,35 @@ fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
     use Pred::*;
 
     match pred {
+        Not(pred) => !check(rlog, *pred),
         IsLeader => rlog.local_node().role == Role::Leader,
         IsFollower => rlog.local_node().role == Role::Follower,
+        LogTermConsistency => {
+            let mut valid_glue = true;
+
+            // snapshotとrawlogが両方ある場合は、
+            // snapshotに続く形でrawlogが存在することを確認する
+            if let Some(snapshot) = &rlog.io().snapshot() {
+                if let Some(rawlog) = &rlog.io().rawlog() {
+                    valid_glue = snapshot.tail.prev_term == rawlog.head.prev_term;
+                }
+            }
+
+            // rawlogが存在する場合は、termが昇順になっていることを確認する
+            let is_sorted = if let Some(rawlog) = &rlog.io().rawlog() {
+                let term_v: Vec<u64> = rawlog
+                    .entries
+                    .iter()
+                    .map(|entry| entry.term().as_u64())
+                    .collect();
+                let is_sorted = term_v.windows(2).all(|w| w[0] <= w[1]);
+                is_sorted
+            } else {
+                false
+            };
+
+            valid_glue & is_sorted
+        }
         SnapShotIs(prev_term, index) => {
             if let Some(snapshot) = &rlog.io().snapshot() {
                 (snapshot.tail.prev_term.as_u64() == prev_term as u64)
@@ -79,6 +115,8 @@ fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
         }
         RawLogIs(term, index, entries) => {
             if let Some(rawlog) = &rlog.io().rawlog() {
+                dbg!(&rawlog);
+
                 let head: LogPosition = rawlog.head;
 
                 let head_check: bool = (head.prev_term.as_u64() == term as u64)
@@ -315,7 +353,7 @@ mod test {
         let a = NodeName(0);
         let b = NodeName(1);
         let c = NodeName(2);
-        let (mut service, cluster) = build_complete_graph(&[a, b, c]);
+        let (mut service, _cluster) = build_complete_graph(&[a, b, c]);
 
         interpret(
             &vec![
@@ -348,6 +386,7 @@ mod test {
                 Check(a, Pred::IsLeader),
                 Check(b, Pred::IsLeader),
                 Check(c, Pred::IsFollower),
+                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Com(2), Com(2), Com(2), Com(2), Com(2)])),
                 Check(b, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])),
 
                 // bで現在のrawlogをスナップショット化する
@@ -364,16 +403,20 @@ mod test {
 
                 // aがstaleしていることがこの時点で判明して
                 // bのsnapshotがaに移る
+                // snapshotは、rawlog[2].term = 4 であることを要求しているが
                 Check(a, Pred::SnapShotIs(4 /* term */ , 2 /* index */)),
 
-                // 一方でbのrawlogは変更されないため次のようになっている
-                // snapshotは、rawlog[2].term = 4 であることを要求しているが
-                // rawlogの実体とは食い違っているため、不整合が生じている
-                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Com(2), Com(2), Com(2), Com(2), Com(2)])),
+                // 一方でbのrawlogは、snapshotの保存にあたって先頭部分が削除され次のようになる
+                // snapshotの要求ではterm4から始まることになっているが、これに反する。
+                Check(a, Pred::RawLogIs(2, 2, vec![Com(2), Com(2), Com(2), Com(2)])),
 
-                // 不整合が実際に生じるのは、reboot時のエラーチェックであり
-                // これには次の2つのコマンドを実行すれば良い
-                Reboot(a, cluster), Step(a)
+                // 最終的な確認として、Termの並びが"In"consistentであることを調べる。
+                Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
+
+                // 不整合が実際に生じるのは、reboot時のエラーチェックである。
+                // panicを確認するには、次のコマンド2つを実行すれば良い。
+                // （既に直前のCheckで不整合が明らかになっているので実行しない）
+                // Reboot(a, _cluster), Step(a)
             ],
             &mut service,
         );
@@ -395,7 +438,7 @@ mod test {
         let a = NodeName(0);
         let b = NodeName(1);
         let c = NodeName(2);
-        let (mut service, cluster) = build_complete_graph(&[a, b, c]);
+        let (mut service, _cluster) = build_complete_graph(&[a, b, c]);
 
         interpret(
             &vec![
@@ -443,9 +486,12 @@ mod test {
                 // 不整合が生じている
                 Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4), Com(2)])),
 
+                // 最終的な確認として、Termの並びが"In"consistentであることを調べる。
+                Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
+
                 // この不整合は、実際にreboot処理を行うと
                 // raftlog内部でエラーになる
-                Reboot(a, cluster), Step(a),
+                // Reboot(a, _cluster), Step(a),
             ],
             &mut service,
         );
