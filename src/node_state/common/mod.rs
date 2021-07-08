@@ -233,6 +233,12 @@ where
         &mut self.io
     }
 
+    /// 自身の所有権を放棄して、
+    /// 代わりに`IO`のインスタンスを返す.
+    pub fn release_io(self) -> IO {
+        self.io
+    }
+
     /// 指定範囲のローカルログをロードする.
     pub fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> IO::LoadLog {
         self.io.load_log(start, end)
