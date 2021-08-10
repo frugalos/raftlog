@@ -42,7 +42,7 @@ impl<IO: Io> LogAppender<IO> {
             let suffix = self.in_progress.take().expect("Never fails");
             track!(common.handle_log_appended(&suffix))?;
 
-            let pendings = mem::replace(&mut self.pendings, Vec::new());
+            let pendings = mem::take(&mut self.pendings);
             if !pendings.is_empty() {
                 self.append(common, pendings);
             }

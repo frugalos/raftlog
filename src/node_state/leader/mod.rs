@@ -58,7 +58,7 @@ impl<IO: Io> Leader<IO> {
         message: Message,
     ) -> Result<NextState<IO>> {
         if let Message::AppendEntriesReply(reply) = message {
-            let updated = self.followers.handle_append_entries_reply(&common, &reply);
+            let updated = self.followers.handle_append_entries_reply(common, &reply);
 
             track!(self.followers.log_sync(common, &reply))?;
 
