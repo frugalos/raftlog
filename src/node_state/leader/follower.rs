@@ -156,7 +156,7 @@ impl<IO: Io> FollowersManager<IO> {
         }
 
         // Delete
-        self.followers = mem::replace(&mut self.followers, BTreeMap::new())
+        self.followers = mem::take(&mut self.followers)
             .into_iter()
             .filter(|&(ref id, _)| config.is_known_node(id))
             .collect();

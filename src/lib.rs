@@ -8,8 +8,6 @@
 #![warn(missing_docs)]
 #[cfg(test)]
 extern crate fibers;
-extern crate futures;
-extern crate prometrics;
 #[macro_use]
 extern crate trackable;
 
