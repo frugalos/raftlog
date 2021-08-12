@@ -21,6 +21,7 @@ pub mod log;
 pub mod message;
 pub mod metrics;
 pub mod node;
+pub mod test_dsl;
 
 mod error;
 mod io;

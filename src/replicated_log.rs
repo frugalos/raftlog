@@ -274,6 +274,12 @@ impl<IO: Io> ReplicatedLog<IO> {
     pub unsafe fn io_mut(&mut self) -> &mut IO {
         self.node.common.io_mut()
     }
+
+    /// このReplicatedLogの所有権を放棄し、
+    /// その代わりに内部で使われているIOインスタンスを取得する.
+    pub fn release_io(self) -> IO {
+        self.node.common.release_io()
+    }
 }
 impl<IO: Io> Stream for ReplicatedLog<IO> {
     type Item = Event;
