@@ -71,7 +71,7 @@ impl LogHistory {
     pub fn get_record(&self, index: LogIndex) -> Option<&HistoryRecord> {
         for r in self.records.iter().rev() {
             if r.head.index <= index {
-                return Some(&r);
+                return Some(r);
             }
         }
         None

@@ -8,8 +8,6 @@
 #![warn(missing_docs)]
 #[cfg(test)]
 extern crate fibers;
-extern crate futures;
-extern crate prometrics;
 #[macro_use]
 extern crate trackable;
 
@@ -23,6 +21,7 @@ pub mod log;
 pub mod message;
 pub mod metrics;
 pub mod node;
+pub mod test_dsl;
 
 mod error;
 mod io;
