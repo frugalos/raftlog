@@ -135,6 +135,8 @@ pub enum IOEvent {
     SaveSuffix,
     /// ログを読み込んだ
     LoadLog,
+    /// ログのSuffixを削除した
+    DeleteSuffix,
 }
 
 /// `Io`-traitを実装する構造体
@@ -154,7 +156,10 @@ pub struct TestIo {
     /// これまでに保存したballot全体
     ballots: Vec<Ballot>,
 
+    /// 永続化されているスナップショット（prefix）
     snapshot: Option<LogPrefix>,
+
+    /// 永続化されている非スナップショットなログ（suffix）
     rawlog: Option<LogSuffix>,
 
     /// このIoを保持するnodeをタイムアウトさせたい時に
@@ -330,8 +335,16 @@ impl Io for TestIo {
         if let Some(rawlog) = &mut self.rawlog {
             // prefixは手持ちのrawlogの先頭部分を被覆している
             assert!(rawlog.head.index <= prefix.tail.index);
-            // 被覆されている部分をskipする
-            assert!(rawlog.skip_to(prefix.tail.index).is_ok());
+
+            if prefix.tail.index <= rawlog.tail().index {
+                // 新しいprefixによって削除するべき部分がある場合は
+                // 被覆されている部分をskipする
+                assert!(rawlog.skip_to(prefix.tail.index).is_ok());
+            } else {
+                // 新しいprefixがrawlogより長い場合には
+                // skip_to が使えないので直接clearする
+                *rawlog = LogSuffix::default();
+            }
         } else {
             unreachable!("the argument `prefix` contains invalid entries");
         }
@@ -360,6 +373,29 @@ impl Io for TestIo {
         }
 
         LogSaver(SaveMode::RawLogSave, self.node_id.clone())
+    }
+
+    type DeleteLog = LogDeleter;
+    fn delete_suffix_from(&mut self, from: LogIndex) -> Self::DeleteLog {
+        self.io_events.push(IOEvent::DeleteSuffix);
+
+        if self.debug {
+            println!("DELETE RAWLOG from : {:?}", &from);
+        }
+
+        if let Some(rawlog) = &mut self.rawlog {
+            assert!(rawlog.head.index <= from);
+            rawlog
+                .truncate(from)
+                .expect("should not make an error in test senarios");
+        } else {
+            unreachable!("don't come here in test scenarios");
+        }
+
+        // 削除が完了するまでに（見かけ上）必要なターン数
+        // 5にしているが深い意味はない
+        const REQUIRED_TURNS: usize = 5;
+        LogDeleter(self.node_id.clone(), REQUIRED_TURNS)
     }
 
     type LoadLog = LogLoader;
@@ -524,6 +560,26 @@ impl Future for LogSaver {
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         Ok(Async::Ready(()))
+    }
+}
+
+/// ログ削除を表現するためのfuture（の実体）
+pub struct LogDeleter(
+    pub NodeId,
+    usize, /* #turns required to finish deleting */
+);
+impl Future for LogDeleter {
+    type Item = ();
+    type Error = Error;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        if self.1 == 0 {
+            // 削除終了
+            Ok(Async::Ready(()))
+        } else {
+            // 完了までに必要なターンを減らす
+            self.1 -= 1;
+            Ok(Async::NotReady)
+        }
     }
 }
 

@@ -1,18 +1,18 @@
 use self::append::FollowerAppend;
+use self::delete::FollowerDelete;
 use self::idle::FollowerIdle;
 use self::init::FollowerInit;
 use self::snapshot::FollowerSnapshot;
-use self::delete::FollowerDelete;
 use super::{Common, NextState};
 use crate::election::Role;
 use crate::message::{Message, MessageHeader};
 use crate::{Io, Result};
 
 mod append;
+mod delete;
 mod idle;
 mod init;
 mod snapshot;
-mod delete;
 
 /// 別の人(ノード)に投票しているフォロワー.
 ///
@@ -43,7 +43,17 @@ impl<IO: Io> Follower<IO> {
         Follower::Init(follower)
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
-        Ok(Some(common.transit_to_candidate()))
+        match self {
+            Follower::Delete(_) => {
+                // Delete中はタイムアウトしても削除処理を続行する。
+                // もしタイムアウトによってキャンセルした場合は
+                // follower/delete.rs にある
+                // delete_test_scenario1 でプログラムが異常終了する。
+                // 詳しくは当該テストを参考のこと。
+                Ok(None)
+            }
+            _ => Ok(Some(common.transit_to_candidate())),
+        }
     }
     pub fn handle_message(
         &mut self,

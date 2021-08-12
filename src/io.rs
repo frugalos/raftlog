@@ -86,7 +86,6 @@ pub trait Io {
     /// ただし、`start`とは異なる位置から、エントリの取得を開始することは許可されない.
     fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog;
 
-
     /// ローカルログのうち末尾部分について、
     /// 指定された位置 `from` を含むそれ以降 [from..) を全て削除する.
     fn delete_suffix_from(&mut self, from: LogIndex) -> Self::DeleteLog;

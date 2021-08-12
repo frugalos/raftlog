@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use trackable::error::ErrorKindExt;
 
 use super::super::{Common, NextState, RoleState};
-use super::{Follower, FollowerAppend, FollowerSnapshot, FollowerDelete};
+use super::{Follower, FollowerAppend, FollowerDelete, FollowerSnapshot};
 use crate::log::{LogPosition, LogSuffix};
 use crate::message::{AppendEntriesCall, Message};
 use crate::{ErrorKind, Io, Result};
