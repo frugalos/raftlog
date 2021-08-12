@@ -219,7 +219,7 @@ pub fn interpret(cs: &[Command], service: &mut Service) {
 
 /// DSLの一つのコマンドを実行する関数
 fn interpret_command(c: Command, service: &mut Service) {
-    use crate::futures::Stream;
+    use futures::Stream;
     use Command::*;
 
     println!("\n Now executing {:?} ...", &c);
@@ -232,7 +232,7 @@ fn interpret_command(c: Command, service: &mut Service) {
         }
         Check(node, pred) => {
             let rlog = service.get_mut(&node).unwrap();
-            assert!(check(&rlog, pred));
+            assert!(check(rlog, pred));
         }
         Heartbeat(node) => {
             let rlog = service.get_mut(&node).unwrap();
@@ -313,10 +313,10 @@ pub fn build_complete_graph(names: &[NodeName]) -> (Service, ClusterMembers) {
     }
 
     for src in &nodes {
-        let mut io_src = ios.remove(&src).unwrap();
+        let mut io_src = ios.remove(src).unwrap();
         for dst in &nodes {
             if src != dst {
-                let io_dst = ios.get(&dst).unwrap();
+                let io_dst = ios.get(dst).unwrap();
                 io_src.set_channel(dst.clone(), io_dst.copy_sender());
             }
         }
