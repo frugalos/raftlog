@@ -110,9 +110,10 @@ mod test {
                 // bとcは新しいTermへ移る準備(aのfollowを外す)
                 Timeout(b), Timeout(c), RunAllUntilStabilize,
 
-                // bを新しいリーダーにする
+                // bを新しいリーダーにするための準備
                 Timeout(b),
 
+                // bにvoteさせてリーダーとするために、
                 // bとcだけ適当な回数計算を進める
                 Step(b), Step(c),
                 Step(b), Step(c),
@@ -121,9 +122,11 @@ mod test {
                 Step(b), Step(c),
                 Step(b), Step(c),
 
-                // cを独立させる
+                // cには、bへのvoteはさせるが
+                // 一方で（後でaとリーダーを競わせる都合上）
+                // bからリーダーになった通知であるNoopを受け取りたくないので
+                // 適当なタイミングで通信を閉じる。
                 RecvBan(c, b),
-                RecvBan(c, a),
                 RunAllUntilStabilize,
 
                 // 想定している状況になっていることを確認する
@@ -132,36 +135,43 @@ mod test {
                 Check(c, Pred::IsFollower),
                 Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Com(2), Com(2), Com(2)])),
                 Check(b, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])),
-                Check(c, Pred::RawLogIs(0, 0, vec![Noop(2)])), // Noop(4)がないことに注意
+                Check(c, Pred::RawLogIs(0, 0, vec![Noop(2)])),
 
-                // a<->b は通信可能にする
+                // ここからは a で log と history が（削除処理中に）ズレる状況を作る
+                // まず a<->b は通信可能にする
                 RecvAllow(b, a),
                 RecvAllow(a, b),
 
                 // bからハートビートを送る
                 Heartbeat(b),
-                // メモリ上のlogとdisk上のlogにgapが生じるところまで進める
+                // aとbに対して計算を行い、
+                // a側で削除処理が走り
+                // historyとlogにズレが起こるところまで進める
                 Step(b), Step(a),
                 Step(b), Step(a),
                 Step(b), Step(a),
                 Step(b), Step(a),
-
-                // これは a のメモリ上のlogの終端位置が
-                // 4にあって、その直前のtermが2であることを意味している
+                
+                // aにおいてズレが起こっていることを確認する。
+                //
+                // まず、Disk上のlogについては削除完了している。
+                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2)])),
+                //
+                // 一方で、 historyから見ると
+                // 終端位置が4で、その直前のtermが2のままである。
+                // すなわちまだhistoryが更新されておらず、
+                // aでlogとhistoryがズレている。
                 Check(a, Pred::HistoryTail(2, 4)),
 
-                // 一方で、既にDiskからは削除済みである
-                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2)])),
-
-                // この状態のまま、aがタイムアウトしてしまうと
-                // 上の食い違った状態でleaderになろうとする。
+                // この状態のまま、aがcandidateになれてしまうと、
+                // 上の食い違った状態でleaderになれる。
                 //
-                // follower/mod.rs において handle_timeout で
-                // Delete中のタイムアウトは禁止している場合は
-                // このような場合を防ぐためであり、
-                // 以下のコードで問題は起きない。
+                // Delete中のタイムアウトで即座にCandidateへ遷移させない場合は
+                // 勿論問題にならない。
                 //
-                // 一方で、タイムアウトを許す場合は
+                // 一方で、
+                // follower/mod.rs の handle_timeout を編集し、
+                // タイムアウトを許すようにコードを変更した場合には、
                 // 以下のコード（最後のStepAll）で問題が起こる。
 
                 // まず a<->c 間だけ通信を可能にする
@@ -179,12 +189,14 @@ mod test {
                 // そのあと、aがLeaderになれるようにTermを増やす手助け
                 Timeout(a),
 
-                // Delete中のタイムアウトを許していない場合 => aはfollowerのまま, cはcandidate
-                // Delete中のタイムアウトを許している場合 => a も c も candidate になる
+                // ここまででaをLeaderにする準備が整った。
                 //
-                // Delete中の「タイムアウトを許可している場合」は、
-                // aがleaderとなった後で、
-                // メモリ上のlogと実体との差に起因するエラーが生じる。
+                // Delete中のタイムアウトによる遷移を
+                //   許さない場合 => aはfollowerのまま, cはcandidateなので問題がない
+                //   許す場合 => aがcandidateになった後、ズレたままleaderになる。
+                //
+                // 後者の場合は、aがleaderとなった後で、
+                // historyとlogのズレに起因するエラーが生じる。
                 //
                 // 発生するエラーについて:
                 // 今回は `impl_io::over_write` で
