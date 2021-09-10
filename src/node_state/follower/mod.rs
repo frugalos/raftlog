@@ -44,7 +44,18 @@ impl<IO: Io> Follower<IO> {
     }
     pub fn handle_timeout(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
         match self {
-            Follower::Delete(_) => {
+            Follower::Delete(delete) => {
+                // Delete中にタイムアウトしたことを記録する。
+                // これによって削除完了後にはcandidateに遷移するようになる。
+                //
+                // * IMPORTANT REMARK *
+                // 削除後にcandidateに遷移する振る舞いにしているのは
+                // `Io`トレイではタイマーに周期性を要求していないからである。
+                // もし非周期的なタイマー（一度だけ発火するタイマー）が使われている場合に、
+                // かつ、このような遷移処理を行わない場合では、
+                // 極端な状況で全員がFollowerになりクラスタが硬直する。
+                delete.set_timeout();
+
                 // Delete中はタイムアウトしても削除処理を続行する。
                 // もしタイムアウトによってキャンセルした場合は
                 // follower/delete.rs にある

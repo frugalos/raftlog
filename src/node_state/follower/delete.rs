@@ -11,7 +11,13 @@ pub struct FollowerDelete<IO: Io> {
     future: IO::DeleteLog,
     from: LogPosition,
     message: AppendEntriesCall,
+
+    // 削除処理中にtimeoutしたかどうかを記録するフラグ。
+    // trueの場合は、削除処理後にcandidateに遷移する。
+    // falseの場合は、FollowerIdleに遷移する。
+    timeouted: bool,
 }
+
 impl<IO: Io> FollowerDelete<IO> {
     pub fn new(common: &mut Common<IO>, from: LogPosition, message: AppendEntriesCall) -> Self {
         let future = common.delete_suffix_from(from.index);
@@ -19,6 +25,7 @@ impl<IO: Io> FollowerDelete<IO> {
             future,
             from,
             message,
+            timeouted: false,
         }
     }
     pub fn handle_message(
@@ -32,17 +39,35 @@ impl<IO: Io> FollowerDelete<IO> {
         Ok(None)
     }
     pub fn run_once(&mut self, common: &mut Common<IO>) -> Result<NextState<IO>> {
+        // logに対する削除が進行中であることを
+        // commonに通知（フラグをセット）する。
+        common.set_if_log_is_being_deleted(true);
+
         if let Async::Ready(_) = track!(self.future.poll())? {
             track!(common.handle_log_rollbacked(self.from))?;
+
+            // logに対する削除が完了し
+            // common.historyとlogが一致したので
+            // commonに通知する。
+            common.set_if_log_is_being_deleted(false);
+
             common
                 .rpc_callee(&self.message.header)
                 .reply_append_entries(self.from);
 
-            let next = Follower::Idle(FollowerIdle::new());
-            Ok(Some(RoleState::Follower(next)))
+            if self.timeouted {
+                Ok(Some(common.transit_to_candidate()))
+            } else {
+                let next = Follower::Idle(FollowerIdle::new());
+                Ok(Some(RoleState::Follower(next)))
+            }
         } else {
             Ok(None)
         }
+    }
+    /// 削除処理中にtimeoutが発生した場合にそれを記録するためのメソッド
+    pub fn set_timeout(&mut self) {
+        self.timeouted = true;
     }
 }
 

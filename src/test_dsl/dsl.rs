@@ -265,7 +265,7 @@ fn interpret_command(c: Command, service: &mut Service) {
         StepAll(iter) => {
             for _ in 0..iter {
                 for (_n, io) in service.iter_mut() {
-                    io.poll().expect("never fails in test senarios");
+                    io.poll().expect("never fails in test scenarios");
                 }
             }
         }

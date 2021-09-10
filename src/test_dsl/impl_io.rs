@@ -387,7 +387,7 @@ impl Io for TestIo {
             assert!(rawlog.head.index <= from);
             rawlog
                 .truncate(from)
-                .expect("should not make an error in test senarios");
+                .expect("should not make an error in test scenarios");
         } else {
             unreachable!("don't come here in test scenarios");
         }

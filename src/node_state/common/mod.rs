@@ -28,6 +28,18 @@ pub struct Common<IO: Io> {
     load_committed: Option<IO::LoadLog>,
     install_snapshot: Option<InstallSnapshot<IO>>,
     metrics: NodeStateMetrics,
+
+    // ストレージ中のlogに対する削除処理が
+    // 進行中であるかどうかを表すフラグ。
+    //
+    // このフラグが true である場合は
+    // ストレージ中のlogと
+    // メモリ中のcacheに相当する`history`とでズレが生じている。
+    // false である場合は、２つは一致している。
+    //
+    // 削除処理を行う箇所:
+    //  * FollowerDelete（Followerのsubstate）
+    log_is_being_deleted: bool,
 }
 impl<IO> Common<IO>
 where
@@ -53,6 +65,7 @@ where
             load_committed: None,
             install_snapshot: None,
             metrics,
+            log_is_being_deleted: false,
         }
     }
 
@@ -326,6 +339,13 @@ where
                 return HandleMessageResult::Handled(None);
             }
 
+            // このif文以降の計算では、historyに基づき状態を遷移させる。
+            // 一方で、ストレージ上のlogと食い違ったhistoryで遷移を行うと問題が生じるため、
+            // それを阻止するべく、logに対する削除中の場合には何もしない。
+            if self.log_is_being_deleted {
+                return HandleMessageResult::Handled(None);
+            }
+
             self.local_node.ballot.term = message.header().term;
             let next_state = if let Message::RequestVoteCall(m) = message {
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
@@ -363,6 +383,14 @@ where
                     HandleMessageResult::Handled(None)
                 }
                 Message::AppendEntriesCall { .. } if !self.is_following_sender(&message) => {
+                    // このclauseに入る
+                    //   <=>
+                    // "自分は何かのnodeに投票して待機している状態で、
+                    // 自分が投票したnode以外がLeaderとなり計算を開始していることに気づく"
+                    // ということなので、絶対に削除処理は進行中ではない。
+                    // よって安全に状態遷移を行うことができる。
+                    debug_assert!(!self.log_is_being_deleted);
+
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
@@ -420,6 +448,11 @@ where
     /// RPCの応答用のインスタンスを返す.
     pub fn rpc_callee<'a>(&'a mut self, caller: &'a MessageHeader) -> RpcCallee<IO> {
         RpcCallee::new(self, caller)
+    }
+
+    /// ストレージにあるlogに対する削除処理の開始・終了を管理する。
+    pub fn set_if_log_is_being_deleted(&mut self, deleting: bool) {
+        self.log_is_being_deleted = deleting;
     }
 
     fn handle_committed(&mut self, suffix: LogSuffix) -> Result<()> {
