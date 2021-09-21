@@ -342,7 +342,7 @@ impl Io for TestIo {
         }
         self.snapshot = Some(prefix);
 
-        LogSaver(SaveMode::SnapshotSave, self.node_id.clone())
+        LogSaver(SaveMode::SnapshotSave, self.node_id.clone(), 2)
     }
     fn save_log_suffix(&mut self, suffix: &LogSuffix) -> Self::SaveLog {
         self.io_events.push(IOEvent::SaveSuffix);
@@ -359,7 +359,7 @@ impl Io for TestIo {
             self.rawlog = Some(suffix.clone());
         }
 
-        LogSaver(SaveMode::RawLogSave, self.node_id.clone())
+        LogSaver(SaveMode::RawLogSave, self.node_id.clone(), 2)
     }
 
     type LoadLog = LogLoader;
@@ -518,12 +518,17 @@ enum SaveMode {
 }
 
 /// ログ保存を表現するためのfuture（の実体）
-pub struct LogSaver(SaveMode, pub NodeId);
+pub struct LogSaver(SaveMode, pub NodeId, u8);
 impl Future for LogSaver {
     type Item = ();
     type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(Async::Ready(()))
+        if self.2 == 0 {
+            Ok(Async::Ready(()))
+        } else {
+            self.2 -= 1;
+            Ok(Async::NotReady)
+        }
     }
 }
 

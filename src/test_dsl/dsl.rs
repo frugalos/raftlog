@@ -16,7 +16,7 @@ use std::fmt;
 /// DSL中でノード名を表すために用いる構造体
 /// 現時点ではu8のnewtypeに過ぎない
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct NodeName(u8);
+pub struct NodeName(pub u8);
 
 impl fmt::Display for NodeName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
