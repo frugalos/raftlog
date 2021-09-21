@@ -383,12 +383,24 @@ where
                     HandleMessageResult::Handled(None)
                 }
                 Message::AppendEntriesCall { .. } if !self.is_following_sender(&message) => {
-                    // このclauseに入る
-                    //   <=>
-                    // "自分は何かのnodeに投票して待機している状態で、
-                    // 自分が投票したnode以外がLeaderとなり計算を開始していることに気づく"
-                    // ということなので、絶対に削除処理は進行中ではない。
-                    // よって安全に状態遷移を行うことができる。
+                    /*
+                     * この節に入るときには削除処理中ではない。なぜなら……
+                     *
+                     * 1. 自分と同じTerm Tからメッセージが届き
+                     * かつ、それがAppendEntriesCall (AE-call) であるということは
+                     * そのメッセージの送り主 N が T のリーダーである。
+                     *
+                     * 2. 非リーダーである自分については、
+                     * いま T にいる以上、Term S (S < T) から遷移してTになっている。
+                     * logに対する処理中でhistoryとズレている場合は遷移を遅延させるので、
+                     * T になった"時点"では、logに対する変更は行われていない。
+                     *
+                     * 3. S から T になって以降は AE-call は受け取っていない。
+                     * (受け取っているなら N をfollowしている筈なので矛盾）
+                     * Term T での主な計算（logへの変更も含む）は
+                     * 最初の AE-call を受け取ってから開始するので、
+                     * T になった"以降"も、一度もlogに対する変更は行われていない。
+                     */
                     debug_assert!(!self.log_is_being_deleted);
 
                     // リーダが確定したので、フォロー先を変更する
