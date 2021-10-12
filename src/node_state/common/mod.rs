@@ -143,8 +143,7 @@ where
             new_head: prefix.tail,
             snapshot: prefix.snapshot,
         };
-        self.metrics.event_queue_len.increment();
-        self.events.push_back(event);
+        self.push_event(event);
         Ok(())
     }
 
@@ -152,8 +151,7 @@ where
     pub fn set_ballot(&mut self, new_ballot: Ballot) {
         if self.local_node.ballot != new_ballot {
             self.local_node.ballot = new_ballot.clone();
-            self.metrics.event_queue_len.increment();
-            self.events.push_back(Event::TermChanged { new_ballot });
+            self.push_event(Event::TermChanged { new_ballot });
         }
     }
 
@@ -222,7 +220,7 @@ where
 
     /// 新しいリーダーが選出されたことを通知する.
     pub fn notify_new_leader_elected(&mut self) {
-        self.events.push_back(Event::NewLeaderElected);
+        self.push_event(Event::NewLeaderElected);
     }
 
     /// 次のメッセージ送信に使用されるシーケンス番号を返す.
@@ -289,8 +287,9 @@ where
 
     /// ユーザに通知するイベントがある場合には、それを返す.
     pub fn next_event(&mut self) -> Option<Event> {
-        self.metrics.event_queue_len.decrement();
-        self.events.pop_front()
+        let event = self.events.pop_front();
+        self.metrics.event_queue_len.set(self.events.len() as f64);
+        event
     }
 
     /// 受信メッセージがある場合には、それを返す.
@@ -424,7 +423,7 @@ where
                     config,
                 } = summary;
                 self.install_snapshot = None;
-                self.events.push_back(Event::SnapshotInstalled { new_head });
+                self.push_event(Event::SnapshotInstalled { new_head });
                 track!(self.history.record_snapshot_installed(new_head, config))?;
             }
 
@@ -474,7 +473,7 @@ where
             .zip(suffix.entries.into_iter())
         {
             let event = Event::Committed { index, entry };
-            self.events.push_back(event);
+            self.push_event(event);
         }
         if new_tail.index >= self.log().head().index {
             // 「ローカルログの終端よりも先の地点のスナップショット」をインストールした後、
@@ -486,11 +485,15 @@ where
     fn set_role(&mut self, new_role: Role) {
         if self.local_node.role != new_role {
             self.local_node.role = new_role;
-            self.events.push_back(Event::RoleChanged { new_role });
+            self.push_event(Event::RoleChanged { new_role });
         }
     }
     fn is_following_sender(&self, message: &Message) -> bool {
         self.local_node.ballot.voted_for == message.header().sender
+    }
+    fn push_event(&mut self, event: Event) {
+        self.events.push_back(event);
+        self.metrics.event_queue_len.set(self.events.len() as f64);
     }
 }
 
