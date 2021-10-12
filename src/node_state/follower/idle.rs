@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use trackable::error::ErrorKindExt;
 
 use super::super::{Common, NextState, RoleState};
-use super::{Follower, FollowerAppend, FollowerSnapshot};
+use super::{Follower, FollowerAppend, FollowerDelete, FollowerSnapshot};
 use crate::log::{LogPosition, LogSuffix};
 use crate::message::{AppendEntriesCall, Message};
 use crate::{ErrorKind, Io, Result};
@@ -93,12 +93,8 @@ impl<IO: Io> FollowerIdle<IO> {
         if !matched {
             // 両者が分岐している
             // => ローカルログ(の未コミット領域)をロールバックして、同期位置まで戻る
-            let new_log_tail = lcp;
-            track!(common.handle_log_rollbacked(new_log_tail))?;
-            common
-                .rpc_callee(&message.header)
-                .reply_append_entries(new_log_tail);
-            Ok(None)
+            let next = FollowerDelete::new(common, lcp, message);
+            Ok(Some(RoleState::Follower(Follower::Delete(next))))
         } else {
             // 両者は包含関係にあるので、追記が可能
             track!(message.suffix.skip_to(lcp.index))?;

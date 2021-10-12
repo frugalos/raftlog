@@ -28,6 +28,18 @@ pub struct Common<IO: Io> {
     load_committed: Option<IO::LoadLog>,
     install_snapshot: Option<InstallSnapshot<IO>>,
     metrics: NodeStateMetrics,
+
+    // ストレージ中のlogに対する削除処理が
+    // 進行中であるかどうかを表すフラグ。
+    //
+    // このフラグが true である場合は
+    // ストレージ中のlogと
+    // メモリ中のcacheに相当する`history`とでズレが生じている。
+    // false である場合は、２つは一致している。
+    //
+    // 削除処理を行う箇所:
+    //  * FollowerDelete（Followerのsubstate）
+    log_is_being_deleted: bool,
 }
 impl<IO> Common<IO>
 where
@@ -53,6 +65,7 @@ where
             load_committed: None,
             install_snapshot: None,
             metrics,
+            log_is_being_deleted: false,
         }
     }
 
@@ -244,6 +257,11 @@ where
         self.io.load_log(start, end)
     }
 
+    /// `from`以降のsuffixエントリ [from..) を削除する
+    pub fn delete_suffix_from(&mut self, from: LogIndex) -> IO::DeleteLog {
+        self.io.delete_suffix_from(from)
+    }
+
     /// ローカルログの末尾部分に`suffix`を追記する.
     pub fn save_log_suffix(&mut self, suffix: &LogSuffix) -> IO::SaveLog {
         self.io.save_log_suffix(suffix)
@@ -321,6 +339,13 @@ where
                 return HandleMessageResult::Handled(None);
             }
 
+            // このif文以降の計算では、historyに基づき状態を遷移させる。
+            // 一方で、ストレージ上のlogと食い違ったhistoryで遷移を行うと問題が生じるため、
+            // それを阻止するべく、logに対する削除中の場合には何もしない。
+            if self.log_is_being_deleted {
+                return HandleMessageResult::Handled(None);
+            }
+
             self.local_node.ballot.term = message.header().term;
             let next_state = if let Message::RequestVoteCall(m) = message {
                 if m.log_tail.is_newer_or_equal_than(self.history.tail()) {
@@ -358,6 +383,26 @@ where
                     HandleMessageResult::Handled(None)
                 }
                 Message::AppendEntriesCall { .. } if !self.is_following_sender(&message) => {
+                    /*
+                     * この節に入るときには削除処理中ではない。なぜなら……
+                     *
+                     * 1. 自分と同じTerm Tからメッセージが届き
+                     * かつ、それがAppendEntriesCall (AE-call) であるということは
+                     * そのメッセージの送り主 N が T のリーダーである。
+                     *
+                     * 2. 非リーダーである自分については、
+                     * いま T にいる以上、Term S (S < T) から遷移してTになっている。
+                     * logに対する処理中でhistoryとズレている場合は遷移を遅延させるので、
+                     * T になった"時点"では、logに対する変更は行われていない。
+                     *
+                     * 3. S から T になって以降は AE-call は受け取っていない。
+                     * (受け取っているなら N をfollowしている筈なので矛盾）
+                     * Term T での主な計算（logへの変更も含む）は
+                     * 最初の AE-call を受け取ってから開始するので、
+                     * T になった"以降"も、一度もlogに対する変更は行われていない。
+                     */
+                    debug_assert!(!self.log_is_being_deleted);
+
                     // リーダが確定したので、フォロー先を変更する
                     let leader = message.header().sender.clone();
                     self.unread_message = Some(message);
@@ -415,6 +460,11 @@ where
     /// RPCの応答用のインスタンスを返す.
     pub fn rpc_callee<'a>(&'a mut self, caller: &'a MessageHeader) -> RpcCallee<IO> {
         RpcCallee::new(self, caller)
+    }
+
+    /// ストレージにあるlogに対する削除処理の開始・終了を管理する。
+    pub fn set_if_log_is_being_deleted(&mut self, deleting: bool) {
+        self.log_is_being_deleted = deleting;
     }
 
     fn handle_committed(&mut self, suffix: LogSuffix) -> Result<()> {

@@ -109,6 +109,7 @@ pub mod tests {
         type SaveLog = NoopSaveLog;
         type LoadLog = LoadLogImpl;
         type Timeout = FibersTimeout;
+        type DeleteLog = NoopSaveLog;
 
         fn try_recv_message(&mut self) -> Result<Option<Message>> {
             Ok(None)
@@ -131,6 +132,10 @@ pub mod tests {
 
         fn save_log_suffix(&mut self, _suffix: &LogSuffix) -> Self::SaveLog {
             NoopSaveLog
+        }
+
+        fn delete_suffix_from(&mut self, _: LogIndex) -> Self::SaveLog {
+            panic!("do not use this in test codes OR please write the adequate code here");
         }
 
         fn load_log(&mut self, start: LogIndex, end: Option<LogIndex>) -> Self::LoadLog {

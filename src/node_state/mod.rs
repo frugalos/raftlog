@@ -48,9 +48,12 @@ impl<IO: Io> NodeState<IO> {
         self.role.is_loader()
     }
     pub fn start_election(&mut self) {
-        if let RoleState::Follower(_) = self.role {
-            let next = self.common.transit_to_candidate();
-            self.handle_role_change(next);
+        if let RoleState::Follower(follower) = &mut self.role {
+            let next = follower.handle_timeout(&mut self.common);
+            let next = track_try_unwrap!(next);
+            if let Some(next) = next {
+                self.handle_role_change(next);
+            }
         }
     }
     fn handle_timeout(&mut self) -> Result<Option<RoleState<IO>>> {

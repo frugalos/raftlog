@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cluster::ClusterMembers;
-use crate::election::Role;
-use crate::log::{self, LogPosition};
+use crate::election::{Role, Term};
+use crate::log::{self, LogIndex, LogPosition};
 use crate::node::NodeId;
 use crate::test_dsl::impl_io::*;
 use crate::ReplicatedLog;
@@ -16,7 +16,7 @@ use std::fmt;
 /// DSL中でノード名を表すために用いる構造体
 /// 現時点ではu8のnewtypeに過ぎない
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct NodeName(u8);
+pub struct NodeName(pub u8);
 
 impl fmt::Display for NodeName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -67,6 +67,9 @@ pub enum Pred {
     /// 1. snapshotとrawlogが正しく接合している
     /// 2. rawlogのtermが昇順になっている
     LogTermConsistency,
+
+    /// Historyのtailを調べる
+    HistoryTail(u64 /* term */, u64 /* index */),
 }
 
 /// 引数`rlog`で表される特定のノードが、述語`pred`を満たすかどうかを調べる
@@ -115,8 +118,6 @@ fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
         }
         RawLogIs(term, index, entries) => {
             if let Some(rawlog) = &rlog.io().rawlog() {
-                dbg!(&rawlog);
-
                 let head: LogPosition = rawlog.head;
 
                 let head_check: bool = (head.prev_term.as_u64() == term as u64)
@@ -152,6 +153,13 @@ fn check(rlog: &ReplicatedLog<TestIo>, pred: Pred) -> bool {
                 false
             }
         }
+        HistoryTail(term, pos) => {
+            rlog.local_history().tail()
+                == LogPosition {
+                    prev_term: Term::new(term),
+                    index: LogIndex::new(pos),
+                }
+        }
     }
 }
 
@@ -183,6 +191,12 @@ pub enum Command {
 
     /// 指定されたノードを、raftlogの実装としての意味で1-stepだけ実行する
     Step(NodeName),
+
+    /// すべてのノードを、iter-step実行する。
+    /// この時ノードの実行はfairである。
+    /// すなわち各ノードをすべて1-step実行してから
+    /// 2-step目の実行を各ノードについて行い、その後で3-step目として実行していく。
+    StepAll(usize),
 
     /// 指定されたノードが、述語を満たすかどうかを検査する
     Check(NodeName, Pred),
@@ -247,6 +261,13 @@ fn interpret_command(c: Command, service: &mut Service) {
         }
         Step(node) => {
             service.get_mut(&node).unwrap().poll().unwrap();
+        }
+        StepAll(iter) => {
+            for _ in 0..iter {
+                for (_n, io) in service.iter_mut() {
+                    io.poll().expect("never fails in test scenarios");
+                }
+            }
         }
         RunAllUntilStabilize => loop {
             let mut check = true;
@@ -338,10 +359,12 @@ pub fn build_complete_graph(names: &[NodeName]) -> (Service, ClusterMembers) {
 mod test {
     use super::*;
 
+    /// Logの削除処理を実装していない場合には、
     /// あるノードで、
     /// snapshot(prefix)の表す最終termと
     /// rawlog(suffix)の先頭エントリが期待するtermで
     /// ズレが生じる現象を再現させる。
+    /// （削除処理を実装している場合は問題ない）
     ///
     /// このテストではノードaでズレが生じるようにする。
     #[test]
@@ -380,7 +403,7 @@ mod test {
                 Timeout(b), Timeout(c),  RunAllUntilStabilize,
 
                 // bを新しいリーダーにする
-                Timeout(b), RunAllUntilStabilize,
+                Timeout(b), StepAll(100),
 
                 // 想定している状況になっていることを確認する
                 Check(a, Pred::IsLeader),
@@ -399,34 +422,36 @@ mod test {
                 RecvAllow(c, a),
 
                 // bからaとcへheartbeatを送る
-                Heartbeat(b), RunAllUntilStabilize,
+                Heartbeat(b), StepAll(100),
 
-                // aがstaleしていることがこの時点で判明して
-                // bのsnapshotがaに移る
-                // snapshotは、rawlog[2].term = 4 であることを要求しているが
-                Check(a, Pred::SnapShotIs(4 /* term */ , 2 /* index */)),
+                // **FollowerDeleteを実装している場合**
+                // 以下のように適切にログが整理される。
+                Check(a, Pred::SnapShotIs(4, 2)),
+                Check(a, Pred::RawLogIs(0, 0, vec![])),
 
-                // 一方でbのrawlogは、snapshotの保存にあたって先頭部分が削除され次のようになる
+                // **FollowerDeleteを実装していない場合（以前のraftlog）**
+                // aがstaleしていることがこの時点で判明してbのsnapshotがaに移る
+                // snapshotは、rawlog[2].term = 4 であることを要求する
+                // Check(a, Pred::SnapShotIs(4 /* term */ , 2 /* index */)),
+                //
+                // 一方でaのrawlogは、snapshotの保存にあたって先頭部分が削除され次のようになる
                 // snapshotの要求ではterm4から始まることになっているが、これに反する。
-                Check(a, Pred::RawLogIs(2, 2, vec![Com(2), Com(2), Com(2), Com(2)])),
-
+                // Check(a, Pred::RawLogIs(2, 2, vec![Com(2), Com(2), Com(2), Com(2)])),
+                //
                 // 最終的な確認として、Termの並びが"In"consistentであることを調べる。
-                Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
-
-                // 不整合が実際に生じるのは、reboot時のエラーチェックである。
-                // panicを確認するには、次のコマンド2つを実行すれば良い。
-                // （既に直前のCheckで不整合が明らかになっているので実行しない）
-                // Reboot(a, _cluster), Step(a)
+                // Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
             ],
             &mut service,
         );
     }
 
+    /// Logの削除処理を実装していない場合には、
     /// あるノードで,
     /// rawlogの一部分だけを書き換えた結果として、
     /// termの昇順整列制約が敗れることを確認する。
     /// 上のscenario1ではsnapshot, rawlog間でズレが生じていたが
     /// rawlog単体でもズレが生じることを示す。
+    /// （削除処理を実装している場合は問題ない）
     ///
     /// このテストではノードaで不整合が起こることを確認する。
     #[test]
@@ -463,9 +488,9 @@ mod test {
 
                 // bとcの間のやりとりで、bを新しいリーダーにする
                 Timeout(b), Timeout(c),
-                RunAllUntilStabilize,
+                StepAll(100),
                 Timeout(b), // b を leaderにする
-                RunAllUntilStabilize,
+                StepAll(100),
 
                 Check(a, Pred::IsLeader),
                 Check(b, Pred::IsLeader),
@@ -478,20 +503,21 @@ mod test {
                 RecvAllow(c, a),
 
                 // bからハートビートを送る
-                Heartbeat(b), RunAllUntilStabilize,
+                Heartbeat(b), StepAll(100),
 
                 // aがstaleしているため
-                // bの長さ2のrawlogにより上書きされるが
-                // rawlog[1].term = 4 と rawlog[2].term = 2 で
-                // 不整合が生じている
-                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4), Com(2)])),
+                // bの長さ2のrawlogにより上書きされる。
 
-                // 最終的な確認として、Termの並びが"In"consistentであることを調べる。
-                Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
+                // **FollowerDeleteを実装している場合**
+                // 以下のように適切にログが整理される。
+                Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4)])),
 
-                // この不整合は、実際にreboot処理を行うと
-                // raftlog内部でエラーになる
-                // Reboot(a, _cluster), Step(a),
+                // **FollowerDeleteを実装していない場合（以前のraftlog）**
+                // rawlog[1].term = 4 と rawlog[2].term = 2 で不整合が生じる
+                // Check(a, Pred::RawLogIs(0, 0, vec![Noop(2), Noop(4), Com(2)])),
+                //
+                // この時、Termの並びが"In"consistentになる。
+                // Check(a, Pred::Not(Box::new(Pred::LogTermConsistency))),
             ],
             &mut service,
         );
